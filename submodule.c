@@ -82,7 +82,7 @@ int is_staging_gitmodules_ok(struct index_state *istate)
 	if ((pos >= 0) && (pos < istate->cache_nr)) {
 		struct stat st;
 		if (lstat(GITMODULES_FILE, &st) == 0 &&
-		    ie_match_stat(istate, istate->cache[pos], &st, 0) & DATA_CHANGED)
+		    ie_modified(istate, istate->cache[pos], &st, 0) & DATA_CHANGED)
 			return 0;
 	}
 
@@ -1480,7 +1480,7 @@ static int get_next_submodule(struct child_process *cp,
 			    !is_empty_dir(ce->name)) {
 				spf->result = 1;
 				strbuf_addf(err,
-					    _("Could not access submodule '%s'"),
+					    _("Could not access submodule '%s'\n"),
 					    ce->name);
 			}
 		}
