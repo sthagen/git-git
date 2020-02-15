@@ -291,11 +291,11 @@ static void load_gitmodules_file(struct index_state *index,
 	if (pos >= 0) {
 		struct cache_entry *ce = index->cache[pos];
 		if (!state && ce->ce_flags & CE_WT_REMOVE) {
-			repo_read_gitmodules(the_repository);
+			repo_read_gitmodules(the_repository, 0);
 		} else if (state && (ce->ce_flags & CE_UPDATE)) {
 			submodule_free(the_repository);
 			checkout_entry(ce, state, NULL, NULL);
-			repo_read_gitmodules(the_repository);
+			repo_read_gitmodules(the_repository, 0);
 		}
 	}
 }
@@ -1420,7 +1420,7 @@ static int clear_ce_flags_1(struct index_state *istate,
 						name, &dtype, pl, istate);
 		if (ret == UNDECIDED)
 			ret = default_match;
-		if (ret == MATCHED)
+		if (ret == MATCHED || ret == MATCHED_RECURSIVE)
 			ce->ce_flags &= ~clear_mask;
 		cache++;
 		progress_nr++;
