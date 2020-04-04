@@ -880,7 +880,7 @@ static void write_reused_pack_one(size_t pos, struct hashfile *out,
 			len = encode_in_pack_object_header(header, sizeof(header),
 							   OBJ_REF_DELTA, size);
 			hashwrite(out, header, len);
-			hashwrite(out, base_oid.hash, 20);
+			hashwrite(out, base_oid.hash, the_hash_algo->rawsz);
 			copy_pack_data(out, reuse_packfile, w_curs, cur, next - cur);
 			return;
 		}
@@ -3469,9 +3469,9 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 
 	read_replace_refs = 0;
 
-	sparse = git_env_bool("GIT_TEST_PACK_SPARSE", 0);
+	sparse = git_env_bool("GIT_TEST_PACK_SPARSE", -1);
 	prepare_repo_settings(the_repository);
-	if (!sparse && the_repository->settings.pack_use_sparse != -1)
+	if (sparse < 0)
 		sparse = the_repository->settings.pack_use_sparse;
 
 	reset_pack_idx_option(&pack_idx_opts);
