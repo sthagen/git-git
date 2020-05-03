@@ -468,6 +468,7 @@ int strbuf_readlink(struct strbuf *sb, const char *path, size_t hint);
  * NUL bytes.
  */
 ssize_t strbuf_write(struct strbuf *sb, FILE *stream);
+ssize_t strbuf_write_fd(struct strbuf *sb, int fd);
 
 /**
  * Read a line from a FILE *, overwriting the existing contents of
@@ -501,6 +502,12 @@ int strbuf_getline(struct strbuf *sb, FILE *file);
  * any) in the buffer.
  */
 int strbuf_getwholeline(struct strbuf *sb, FILE *file, int term);
+
+/**
+ * Like `strbuf_getwholeline`, but appends the line instead of
+ * resetting the buffer first.
+ */
+int strbuf_appendwholeline(struct strbuf *sb, FILE *file, int term);
 
 /**
  * Like `strbuf_getwholeline`, but operates on a file descriptor.

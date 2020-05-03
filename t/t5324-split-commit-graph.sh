@@ -4,6 +4,7 @@ test_description='split commit graph'
 . ./test-lib.sh
 
 GIT_TEST_COMMIT_GRAPH=0
+GIT_TEST_COMMIT_GRAPH_CHANGED_PATHS=0
 
 test_expect_success 'setup repo' '
 	git init &&
@@ -210,8 +211,14 @@ test_expect_success 'test merge stragety constants' '
 		git config core.commitGraph true &&
 		test_line_count = 2 $graphdir/commit-graph-chain &&
 		test_commit 15 &&
-		git commit-graph write --reachable --split --size-multiple=10 --expire-time=1980-01-01 &&
+		touch $graphdir/to-delete.graph $graphdir/to-keep.graph &&
+		test-tool chmtime =1546362000 $graphdir/to-delete.graph &&
+		test-tool chmtime =1546362001 $graphdir/to-keep.graph &&
+		git commit-graph write --reachable --split --size-multiple=10 \
+			--expire-time="2019-01-01 12:00 -05:00" &&
 		test_line_count = 1 $graphdir/commit-graph-chain &&
+		test_path_is_missing $graphdir/to-delete.graph &&
+		test_path_is_file $graphdir/to-keep.graph &&
 		ls $graphdir/graph-*.graph >graph-files &&
 		test_line_count = 3 graph-files
 	) &&
@@ -349,6 +356,49 @@ test_expect_success 'split across alternate where alternate is not split' '
 		test_line_count = 1 $graphdir/commit-graph-chain
 	) &&
 	test_cmp commit-graph .git/objects/info/commit-graph
+'
+
+test_expect_success '--split=no-merge always writes an incremental' '
+	test_when_finished rm -rf a b &&
+	rm -rf $graphdir $infodir/commit-graph &&
+	git reset --hard commits/2 &&
+	git rev-list HEAD~1 >a &&
+	git rev-list HEAD >b &&
+	git commit-graph write --split --stdin-commits <a &&
+	git commit-graph write --split=no-merge --stdin-commits <b &&
+	test_line_count = 2 $graphdir/commit-graph-chain
+'
+
+test_expect_success '--split=replace replaces the chain' '
+	rm -rf $graphdir $infodir/commit-graph &&
+	git reset --hard commits/3 &&
+	git rev-list -1 HEAD~2 >a &&
+	git rev-list -1 HEAD~1 >b &&
+	git rev-list -1 HEAD >c &&
+	git commit-graph write --split=no-merge --stdin-commits <a &&
+	git commit-graph write --split=no-merge --stdin-commits <b &&
+	git commit-graph write --split=no-merge --stdin-commits <c &&
+	test_line_count = 3 $graphdir/commit-graph-chain &&
+	git commit-graph write --stdin-commits --split=replace <b &&
+	test_path_is_missing $infodir/commit-graph &&
+	test_path_is_file $graphdir/commit-graph-chain &&
+	ls $graphdir/graph-*.graph >graph-files &&
+	test_line_count = 1 graph-files &&
+	verify_chain_files_exist $graphdir &&
+	graph_read_expect 2
+'
+
+test_expect_success ULIMIT_FILE_DESCRIPTORS 'handles file descriptor exhaustion' '
+	git init ulimit &&
+	(
+		cd ulimit &&
+		for i in $(test_seq 64)
+		do
+			test_commit $i &&
+			test_might_fail run_with_limited_open_files git commit-graph write \
+				--split=no-merge --reachable || return 1
+		done
+	)
 '
 
 test_done

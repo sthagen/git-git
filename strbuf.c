@@ -554,6 +554,10 @@ ssize_t strbuf_write(struct strbuf *sb, FILE *f)
 	return sb->len ? fwrite(sb->buf, 1, sb->len, f) : 0;
 }
 
+ssize_t strbuf_write_fd(struct strbuf *sb, int fd)
+{
+	return sb->len ? write(fd, sb->buf, sb->len) : 0;
+}
 
 #define STRBUF_MAXLINK (2*PATH_MAX)
 
@@ -689,6 +693,16 @@ int strbuf_getwholeline(struct strbuf *sb, FILE *fp, int term)
 	return 0;
 }
 #endif
+
+int strbuf_appendwholeline(struct strbuf *sb, FILE *fp, int term)
+{
+	struct strbuf line = STRBUF_INIT;
+	if (strbuf_getwholeline(&line, fp, term))
+		return EOF;
+	strbuf_addbuf(sb, &line);
+	strbuf_release(&line);
+	return 0;
+}
 
 static int strbuf_getdelim(struct strbuf *sb, FILE *fp, int term)
 {

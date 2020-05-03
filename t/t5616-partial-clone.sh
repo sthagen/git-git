@@ -49,7 +49,7 @@ test_expect_success 'do partial clone 1' '
 test_expect_success 'verify that .promisor file contains refs fetched' '
 	ls pc1/.git/objects/pack/pack-*.promisor >promisorlist &&
 	test_line_count = 1 promisorlist &&
-	git -C srv.bare rev-list HEAD >headhash &&
+	git -C srv.bare rev-parse --verify HEAD >headhash &&
 	grep "$(cat headhash) HEAD" $(cat promisorlist) &&
 	grep "$(cat headhash) refs/heads/master" $(cat promisorlist)
 '
@@ -413,6 +413,14 @@ test_expect_success 'verify fetch downloads only one pack when updating refs' '
 	git -C pack-test fetch origin &&
 	ls pack-test/.git/objects/pack/*pack >pack-list &&
 	test_line_count = 3 pack-list
+'
+
+test_expect_success 'single-branch tag following respects partial clone' '
+	git clone --single-branch -b B --filter=blob:none \
+		"file://$(pwd)/srv.bare" single &&
+	git -C single rev-parse --verify refs/tags/B &&
+	git -C single rev-parse --verify refs/tags/A &&
+	test_must_fail git -C single rev-parse --verify refs/tags/C
 '
 
 . "$TEST_DIRECTORY"/lib-httpd.sh

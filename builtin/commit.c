@@ -1700,9 +1700,7 @@ int cmd_commit(int argc, const char **argv, const char *prefix)
 		      "new_index file. Check that disk is not full and quota is\n"
 		      "not exceeded, and then \"git restore --staged :/\" to recover."));
 
-	if (git_env_bool(GIT_TEST_COMMIT_GRAPH, 0) &&
-	    write_commit_graph_reachable(the_repository->objects->odb, 0, NULL))
-		return 1;
+	git_test_write_commit_graph_or_die();
 
 	repo_rerere(the_repository, 0);
 	run_command_v_opt(argv_gc_auto, RUN_GIT_CMD);
@@ -1720,6 +1718,8 @@ int cmd_commit(int argc, const char **argv, const char *prefix)
 		print_commit_summary(the_repository, prefix,
 				     &oid, flags);
 	}
+
+	apply_autostash(git_path_merge_autostash(the_repository));
 
 	UNLEAK(err);
 	UNLEAK(sb);
