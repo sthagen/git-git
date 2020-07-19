@@ -792,6 +792,13 @@ test_expect_success 'bisect replay with old and new' '
 	git bisect reset
 '
 
+test_expect_success 'bisect replay with CRLF log' '
+	append_cr <log_to_replay.txt >log_to_replay_crlf.txt &&
+	git bisect replay log_to_replay_crlf.txt >bisect_result_crlf &&
+	grep "$HASH2 is the first new commit" bisect_result_crlf &&
+	git bisect reset
+'
+
 test_expect_success 'bisect cannot mix old/new and good/bad' '
 	git bisect start &&
 	git bisect bad $HASH4 &&
@@ -859,7 +866,9 @@ test_expect_success 'bisect cannot mix terms' '
 
 test_expect_success 'bisect terms rejects invalid terms' '
 	git bisect reset &&
+	test_must_fail git bisect start --term-good &&
 	test_must_fail git bisect start --term-good invalid..term &&
+	test_must_fail git bisect start --term-bad &&
 	test_must_fail git bisect terms --term-bad invalid..term &&
 	test_must_fail git bisect terms --term-good bad &&
 	test_must_fail git bisect terms --term-good old &&

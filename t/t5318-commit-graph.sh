@@ -14,6 +14,10 @@ test_expect_success 'setup full repo' '
 	test_oid_init
 '
 
+test_expect_success POSIXPERM 'tweak umask for modebit tests' '
+	umask 022
+'
+
 test_expect_success 'verify graph with no graph file' '
 	cd "$TRASH_DIRECTORY/full" &&
 	git commit-graph verify
@@ -40,15 +44,6 @@ test_expect_success 'create commits and repack' '
 		git branch commits/$i
 	done &&
 	git repack
-'
-
-test_expect_success 'exit with correct error on bad input to --stdin-commits' '
-	cd "$TRASH_DIRECTORY/full" &&
-	echo HEAD | test_expect_code 1 git commit-graph write --stdin-commits 2>stderr &&
-	test_i18ngrep "unexpected non-hex object ID: HEAD" stderr &&
-	# valid tree OID, but not a commit OID
-	git rev-parse HEAD^{tree} | test_expect_code 1 git commit-graph write --stdin-commits 2>stderr &&
-	test_i18ngrep "invalid commit object id" stderr
 '
 
 graph_git_two_modes() {
@@ -91,11 +86,34 @@ graph_read_expect() {
 	test_cmp expect output
 }
 
+test_expect_success 'exit with correct error on bad input to --stdin-commits' '
+	cd "$TRASH_DIRECTORY/full" &&
+	# invalid, non-hex OID
+	echo HEAD >in &&
+	test_expect_code 1 git commit-graph write --stdin-commits <in 2>stderr &&
+	test_i18ngrep "unexpected non-hex object ID: HEAD" stderr &&
+	# non-existent OID
+	echo $ZERO_OID >in &&
+	test_expect_code 1 git commit-graph write --stdin-commits <in 2>stderr &&
+	test_i18ngrep "invalid object" stderr &&
+	# valid commit and tree OID
+	git rev-parse HEAD HEAD^{tree} >in &&
+	git commit-graph write --stdin-commits <in &&
+	graph_read_expect 3
+'
+
 test_expect_success 'write graph' '
 	cd "$TRASH_DIRECTORY/full" &&
 	git commit-graph write &&
 	test_path_is_file $objdir/info/commit-graph &&
 	graph_read_expect "3"
+'
+
+test_expect_success POSIXPERM 'write graph has correct permissions' '
+	test_path_is_file $objdir/info/commit-graph &&
+	echo "-r--r--r--" >expect &&
+	test_modebits $objdir/info/commit-graph >actual &&
+	test_cmp expect actual
 '
 
 graph_git_behavior 'graph exists' full commits/3 commits/1
@@ -129,7 +147,7 @@ test_expect_success 'Add more commits' '
 test_expect_success 'commit-graph write progress off for redirected stderr' '
 	cd "$TRASH_DIRECTORY/full" &&
 	git commit-graph write 2>err &&
-	test_line_count = 0 err
+	test_must_be_empty err
 '
 
 test_expect_success 'commit-graph write force progress on for stderr' '
@@ -141,13 +159,34 @@ test_expect_success 'commit-graph write force progress on for stderr' '
 test_expect_success 'commit-graph write with the --no-progress option' '
 	cd "$TRASH_DIRECTORY/full" &&
 	git commit-graph write --no-progress 2>err &&
-	test_line_count = 0 err
+	test_must_be_empty err
+'
+
+test_expect_success 'commit-graph write --stdin-commits progress off for redirected stderr' '
+	cd "$TRASH_DIRECTORY/full" &&
+	git rev-parse commits/5 >in &&
+	git commit-graph write --stdin-commits <in 2>err &&
+	test_must_be_empty err
+'
+
+test_expect_success 'commit-graph write --stdin-commits force progress on for stderr' '
+	cd "$TRASH_DIRECTORY/full" &&
+	git rev-parse commits/5 >in &&
+	GIT_PROGRESS_DELAY=0 git commit-graph write --stdin-commits --progress <in 2>err &&
+	test_i18ngrep "Collecting commits from input" err
+'
+
+test_expect_success 'commit-graph write --stdin-commits with the --no-progress option' '
+	cd "$TRASH_DIRECTORY/full" &&
+	git rev-parse commits/5 >in &&
+	git commit-graph write --stdin-commits --no-progress <in 2>err &&
+	test_must_be_empty err
 '
 
 test_expect_success 'commit-graph verify progress off for redirected stderr' '
 	cd "$TRASH_DIRECTORY/full" &&
 	git commit-graph verify 2>err &&
-	test_line_count = 0 err
+	test_must_be_empty err
 '
 
 test_expect_success 'commit-graph verify force progress on for stderr' '
@@ -159,7 +198,7 @@ test_expect_success 'commit-graph verify force progress on for stderr' '
 test_expect_success 'commit-graph verify with the --no-progress option' '
 	cd "$TRASH_DIRECTORY/full" &&
 	git commit-graph verify --no-progress 2>err &&
-	test_line_count = 0 err
+	test_must_be_empty err
 '
 
 # Current graph structure:
@@ -423,7 +462,8 @@ GRAPH_BYTE_FOOTER=$(($GRAPH_OCTOPUS_DATA_OFFSET + 4 * $NUM_OCTOPUS_EDGES))
 corrupt_graph_setup() {
 	cd "$TRASH_DIRECTORY/full" &&
 	test_when_finished mv commit-graph-backup $objdir/info/commit-graph &&
-	cp $objdir/info/commit-graph commit-graph-backup
+	cp $objdir/info/commit-graph commit-graph-backup &&
+	chmod u+w $objdir/info/commit-graph
 }
 
 corrupt_graph_verify() {
@@ -437,6 +477,7 @@ corrupt_graph_verify() {
 	fi &&
 	git status --short &&
 	GIT_TEST_COMMIT_GRAPH_DIE_ON_LOAD=true git commit-graph write &&
+	chmod u+w $objdir/info/commit-graph &&
 	git commit-graph verify
 }
 

@@ -386,7 +386,7 @@ test_expect_success 'clone shallow with packed refs' '
 '
 
 test_expect_success 'in_vain not triggered before first ACK' '
-	rm -rf myserver myclient trace &&
+	rm -rf myserver myclient &&
 	git init myserver &&
 	test_commit -C myserver foo &&
 	git clone "file://$(pwd)/myserver" myclient &&
@@ -399,12 +399,12 @@ test_expect_success 'in_vain not triggered before first ACK' '
 	# The new commit that the client wants to fetch.
 	test_commit -C myserver bar &&
 
-	GIT_TRACE_PACKET="$(pwd)/trace" git -C myclient fetch --progress origin &&
-	test_i18ngrep "Total 3 " trace
+	git -C myclient fetch --progress origin 2>log &&
+	test_i18ngrep "remote: Total 3 " log
 '
 
 test_expect_success 'in_vain resetted upon ACK' '
-	rm -rf myserver myclient trace &&
+	rm -rf myserver myclient &&
 	git init myserver &&
 
 	# Linked list of commits on master. The first is common; the rest are
@@ -429,8 +429,8 @@ test_expect_success 'in_vain resetted upon ACK' '
 	# first. The 256th commit is common between the client and the server,
 	# and should reset in_vain. This allows negotiation to continue until
 	# the client reports that first_anotherbranch_commit is common.
-	GIT_TRACE_PACKET="$(pwd)/trace" git -C myclient fetch --progress origin master &&
-	test_i18ngrep "Total 3 " trace
+	git -C myclient fetch --progress origin master 2>log &&
+	test_i18ngrep "Total 3 " log
 '
 
 test_expect_success 'fetch in shallow repo unreachable shallow objects' '
@@ -871,9 +871,10 @@ test_expect_success 'shallow since with commit graph and already-seen commit' '
 
 	GIT_PROTOCOL=version=2 git upload-pack . <<-EOF >/dev/null
 	0012command=fetch
+	$(echo "object-format=$(test_oid algo)" | packetize)
 	00010013deepen-since 1
-	0032want $(git rev-parse other)
-	0032have $(git rev-parse master)
+	$(echo "want $(git rev-parse other)" | packetize)
+	$(echo "have $(git rev-parse master)" | packetize)
 	0000
 	EOF
 	)
@@ -999,7 +1000,6 @@ fetch_filter_blob_limit_zero () {
 	test_config -C "$SERVER" uploadpack.allowfilter 1 &&
 
 	git clone "$URL" client &&
-	test_config -C client extensions.partialclone origin &&
 
 	test_commit -C "$SERVER" two &&
 

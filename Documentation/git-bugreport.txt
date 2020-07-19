@@ -28,6 +28,8 @@ The following information is captured automatically:
  - 'git version --build-options'
  - uname sysname, release, version, and machine strings
  - Compiler-specific info string
+ - A list of enabled hooks
+ - $SHELL
 
 This tool is invoked via the typical Git setup process, which means that in some
 cases, it might not be able to launch - for example, if a relevant config file
@@ -45,7 +47,7 @@ OPTIONS
 --suffix <format>::
 	Specify an alternate suffix for the bugreport name, to create a file
 	named 'git-bugreport-<formatted suffix>'. This should take the form of a
-	link:strftime[3] format string; the current local time will be used.
+	strftime(3) format string; the current local time will be used.
 
 GIT
 ---

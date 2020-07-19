@@ -100,16 +100,36 @@ test_expect_success 'clone --sparse' '
 	check_files clone a
 '
 
+test_expect_success 'interaction with clone --no-checkout (unborn index)' '
+	git clone --no-checkout "file://$(pwd)/repo" clone_no_checkout &&
+	git -C clone_no_checkout sparse-checkout init --cone &&
+	git -C clone_no_checkout sparse-checkout set folder1 &&
+
+	git -C clone_no_checkout sparse-checkout list >actual &&
+	cat >expect <<-\EOF &&
+	folder1
+	EOF
+	test_cmp expect actual &&
+
+	# nothing checked out, expect "No such file or directory"
+	! ls clone_no_checkout/* >actual &&
+	test_must_be_empty actual &&
+	test_path_is_missing clone_no_checkout/.git/index &&
+
+	# No branch is checked out until we manually switch to one
+	git -C clone_no_checkout switch master &&
+	test_path_is_file clone_no_checkout/.git/index &&
+	check_files clone_no_checkout a folder1
+'
+
 test_expect_success 'set enables config' '
 	git init empty-config &&
 	(
 		cd empty-config &&
 		test_commit test file &&
 		test_path_is_missing .git/config.worktree &&
-		test_must_fail git sparse-checkout set nothing &&
+		git sparse-checkout set nothing &&
 		test_path_is_file .git/config.worktree &&
-		test_must_fail git config core.sparseCheckout &&
-		git sparse-checkout set "/*" &&
 		test_cmp_config true core.sparseCheckout
 	)
 '
@@ -302,8 +322,8 @@ test_expect_success 'revert to old sparse-checkout on empty update' '
 		echo >file &&
 		git add file &&
 		git commit -m "test" &&
-		test_must_fail git sparse-checkout set nothing 2>err &&
-		test_i18ngrep "Sparse checkout leaves no entry on working directory" err &&
+		git sparse-checkout set nothing 2>err &&
+		test_i18ngrep ! "Sparse checkout leaves no entry on working directory" err &&
 		test_i18ngrep ! ".git/index.lock" err &&
 		git sparse-checkout set file
 	)

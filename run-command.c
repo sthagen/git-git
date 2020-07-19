@@ -1039,6 +1039,7 @@ int run_command_v_opt_cd_env_tr2(const char **argv, int opt, const char *dir,
 	cmd.silent_exec_failure = opt & RUN_SILENT_EXEC_FAILURE ? 1 : 0;
 	cmd.use_shell = opt & RUN_USING_SHELL ? 1 : 0;
 	cmd.clean_on_exit = opt & RUN_CLEAN_ON_EXIT ? 1 : 0;
+	cmd.wait_after_clean = opt & RUN_WAIT_AFTER_CLEAN ? 1 : 0;
 	cmd.dir = dir;
 	cmd.env = env;
 	cmd.trace2_child_class = tr2_class;
@@ -1863,4 +1864,17 @@ int run_processes_parallel_tr2(int n, get_next_task_fn get_next_task,
 	trace2_region_leave(tr2_category, tr2_label, NULL);
 
 	return result;
+}
+
+int run_auto_gc(int quiet)
+{
+	struct argv_array argv_gc_auto = ARGV_ARRAY_INIT;
+	int status;
+
+	argv_array_pushl(&argv_gc_auto, "gc", "--auto", NULL);
+	if (quiet)
+		argv_array_push(&argv_gc_auto, "--quiet");
+	status = run_command_v_opt(argv_gc_auto.argv, RUN_GIT_CMD);
+	argv_array_clear(&argv_gc_auto);
+	return status;
 }

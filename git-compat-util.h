@@ -869,6 +869,12 @@ FILE *fopen_for_writing(const char *path);
 FILE *fopen_or_warn(const char *path, const char *mode);
 
 /*
+ * Like strncmp, but only return zero if s is NUL-terminated and exactly len
+ * characters long.  If it is not, consider it greater than t.
+ */
+int xstrncmpz(const char *s, const char *t, size_t len);
+
+/*
  * FREE_AND_NULL(ptr) is like free(ptr) followed by ptr = NULL. Note
  * that ptr is used twice, so don't pass e.g. ptr++.
  */
@@ -1215,13 +1221,6 @@ int access_or_die(const char *path, int mode, unsigned flag);
 
 /* Warn on an inaccessible file if errno indicates this is an error */
 int warn_on_fopen_errors(const char *path);
-
-#ifdef GMTIME_UNRELIABLE_ERRORS
-struct tm *git_gmtime(const time_t *);
-struct tm *git_gmtime_r(const time_t *, struct tm *);
-#define gmtime git_gmtime
-#define gmtime_r git_gmtime_r
-#endif
 
 #if !defined(USE_PARENS_AROUND_GETTEXT_N) && defined(__GNUC__)
 #define USE_PARENS_AROUND_GETTEXT_N 1
