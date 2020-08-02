@@ -43,6 +43,8 @@ UI, Workflows & Features
    prepared to work with "set -u" but recent changes got a bit more
    sloppy.  This has been corrected.
 
+ * "git gui" now allows opening work trees from the start-up dialog.
+
 
 Performance, Internal Implementation, Development Support etc.
 
@@ -114,7 +116,7 @@ Performance, Internal Implementation, Development Support etc.
    configuration variables in extensions.* namespace were supposed to
    have special meaning in repositories whose version numbers are 1 or
    higher), but this was a bit too big a change.  The behaviour in
-   recent versions of Git where certaion extensions.* were honored by
+   recent versions of Git where certain extensions.* were honored by
    mistake even in version 0 repositories has been restored.
 
 
