@@ -742,9 +742,9 @@ static void update_head(const struct ref *our, const struct ref *remote,
 
 static int git_sparse_checkout_init(const char *repo)
 {
-	struct argv_array argv = ARGV_ARRAY_INIT;
+	struct strvec argv = STRVEC_INIT;
 	int result = 0;
-	argv_array_pushl(&argv, "-C", repo, "sparse-checkout", "init", NULL);
+	strvec_pushl(&argv, "-C", repo, "sparse-checkout", "init", NULL);
 
 	/*
 	 * We must apply the setting in the current process
@@ -752,12 +752,12 @@ static int git_sparse_checkout_init(const char *repo)
 	 */
 	core_apply_sparse_checkout = 1;
 
-	if (run_command_v_opt(argv.argv, RUN_GIT_CMD)) {
+	if (run_command_v_opt(argv.v, RUN_GIT_CMD)) {
 		error(_("failed to initialize sparse-checkout"));
 		result = 1;
 	}
 
-	argv_array_clear(&argv);
+	strvec_clear(&argv);
 	return result;
 }
 
@@ -819,33 +819,33 @@ static int checkout(int submodule_progress)
 			   oid_to_hex(&oid), "1", NULL);
 
 	if (!err && (option_recurse_submodules.nr > 0)) {
-		struct argv_array args = ARGV_ARRAY_INIT;
-		argv_array_pushl(&args, "submodule", "update", "--require-init", "--recursive", NULL);
+		struct strvec args = STRVEC_INIT;
+		strvec_pushl(&args, "submodule", "update", "--require-init", "--recursive", NULL);
 
 		if (option_shallow_submodules == 1)
-			argv_array_push(&args, "--depth=1");
+			strvec_push(&args, "--depth=1");
 
 		if (max_jobs != -1)
-			argv_array_pushf(&args, "--jobs=%d", max_jobs);
+			strvec_pushf(&args, "--jobs=%d", max_jobs);
 
 		if (submodule_progress)
-			argv_array_push(&args, "--progress");
+			strvec_push(&args, "--progress");
 
 		if (option_verbosity < 0)
-			argv_array_push(&args, "--quiet");
+			strvec_push(&args, "--quiet");
 
 		if (option_remote_submodules) {
-			argv_array_push(&args, "--remote");
-			argv_array_push(&args, "--no-fetch");
+			strvec_push(&args, "--remote");
+			strvec_push(&args, "--no-fetch");
 		}
 
 		if (option_single_branch >= 0)
-			argv_array_push(&args, option_single_branch ?
+			strvec_push(&args, option_single_branch ?
 					       "--single-branch" :
 					       "--no-single-branch");
 
-		err = run_command_v_opt(args.argv, RUN_GIT_CMD);
-		argv_array_clear(&args);
+		err = run_command_v_opt(args.v, RUN_GIT_CMD);
+		strvec_clear(&args);
 	}
 
 	return err;
@@ -953,7 +953,6 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 	struct ref *mapped_refs;
 	const struct ref *ref;
 	struct strbuf key = STRBUF_INIT;
-	struct strbuf default_refspec = STRBUF_INIT;
 	struct strbuf branch_top = STRBUF_INIT, reflog_msg = STRBUF_INIT;
 	struct transport *transport = NULL;
 	const char *src_ref_prefix = "refs/heads/";
@@ -961,7 +960,7 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 	int err = 0, complete_refs_before_fetch = 1;
 	int submodule_progress;
 
-	struct argv_array ref_prefixes = ARGV_ARRAY_INIT;
+	struct strvec ref_prefixes = STRVEC_INIT;
 
 	packet_trace_identity("clone");
 	argc = parse_options(argc, argv, prefix, builtin_clone_options,
@@ -1157,9 +1156,8 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 
 	remote = remote_get(option_origin);
 
-	strbuf_addf(&default_refspec, "+%s*:%s*", src_ref_prefix,
-		    branch_top.buf);
-	refspec_append(&remote->fetch, default_refspec.buf);
+	refspec_appendf(&remote->fetch, "+%s*:%s*", src_ref_prefix,
+			branch_top.buf);
 
 	transport = transport_get(remote, remote->url[0]);
 	transport_set_verbosity(transport, option_verbosity, option_progress);
@@ -1219,12 +1217,12 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 		transport->smart_options->check_self_contained_and_connected = 1;
 
 
-	argv_array_push(&ref_prefixes, "HEAD");
+	strvec_push(&ref_prefixes, "HEAD");
 	refspec_ref_prefixes(&remote->fetch, &ref_prefixes);
 	if (option_branch)
 		expand_ref_prefix(&ref_prefixes, option_branch);
 	if (!option_no_tags)
-		argv_array_push(&ref_prefixes, "refs/tags/");
+		strvec_push(&ref_prefixes, "refs/tags/");
 
 	refs = transport_get_remote_refs(transport, &ref_prefixes);
 
@@ -1235,7 +1233,7 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 		 * Now that we know what algorithm the remote side is using,
 		 * let's set ours to the same thing.
 		 */
-		initialize_repository_version(hash_algo);
+		initialize_repository_version(hash_algo, 1);
 		repo_set_hash_algo(the_repository, hash_algo);
 
 		mapped_refs = wanted_peer_refs(refs, &remote->fetch);
@@ -1332,9 +1330,8 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 	strbuf_release(&reflog_msg);
 	strbuf_release(&branch_top);
 	strbuf_release(&key);
-	strbuf_release(&default_refspec);
 	junk_mode = JUNK_LEAVE_ALL;
 
-	argv_array_clear(&ref_prefixes);
+	strvec_clear(&ref_prefixes);
 	return err;
 }

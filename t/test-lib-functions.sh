@@ -820,7 +820,7 @@ test_must_fail_acceptable () {
 	fi
 
 	case "$1" in
-	git|__git*|test-tool|test-svn-fe|test_terminal)
+	git|__git*|test-tool|test_terminal)
 		return 0
 		;;
 	*)
@@ -952,7 +952,13 @@ test_expect_code () {
 # - not all diff versions understand "-u"
 
 test_cmp() {
-	eval "$GIT_TEST_CMP" '"$@"'
+	test $# -eq 2 || BUG "test_cmp requires two arguments"
+	if ! eval "$GIT_TEST_CMP" '"$@"'
+	then
+		test "x$1" = x- || test -e "$1" || BUG "test_cmp '$1' missing"
+		test "x$2" = x- || test -e "$2" || BUG "test_cmp '$2' missing"
+		return 1
+	fi
 }
 
 # Check that the given config key has the expected value.
@@ -981,7 +987,13 @@ test_cmp_config() {
 # test_cmp_bin - helper to compare binary files
 
 test_cmp_bin() {
-	cmp "$@"
+	test $# -eq 2 || BUG "test_cmp_bin requires two arguments"
+	if ! cmp "$@"
+	then
+		test "x$1" = x- || test -e "$1" || BUG "test_cmp_bin '$1' missing"
+		test "x$2" = x- || test -e "$2" || BUG "test_cmp_bin '$2' missing"
+		return 1
+	fi
 }
 
 # Use this instead of test_cmp to compare files that contain expected and
@@ -1464,9 +1476,7 @@ test_set_hash () {
 
 # Detect the hash algorithm in use.
 test_detect_hash () {
-	# Currently we only support SHA-1, but in the future this function will
-	# actually detect the algorithm in use.
-	test_hash_algo='sha1'
+	test_hash_algo="${GIT_TEST_DEFAULT_HASH:-sha1}"
 }
 
 # Load common hash metadata and common placeholder object IDs for use with
@@ -1515,7 +1525,17 @@ test_oid_cache () {
 # Look up a per-hash value based on a key ($1).  The value must have been loaded
 # by test_oid_init or test_oid_cache.
 test_oid () {
-	local var="test_oid_${test_hash_algo}_$1" &&
+	local algo="${test_hash_algo}" &&
+
+	case "$1" in
+	--hash=*)
+		algo="${1#--hash=}" &&
+		shift;;
+	*)
+		;;
+	esac &&
+
+	local var="test_oid_${algo}_$1" &&
 
 	# If the variable is unset, we must be missing an entry for this
 	# key-hash pair, so exit with an error.
@@ -1607,4 +1627,37 @@ test_path_is_hidden () {
 	# Use the output of `attrib`, ignore the absolute path
 	case "$("$SYSTEMROOT"/system32/attrib "$1")" in *H*?:*) return 0;; esac
 	return 1
+}
+
+# Check that the given command was invoked as part of the
+# trace2-format trace on stdin.
+#
+#	test_subcommand [!] <command> <args>... < <trace>
+#
+# For example, to look for an invocation of "git upload-pack
+# /path/to/repo"
+#
+#	GIT_TRACE2_EVENT=event.log git fetch ... &&
+#	test_subcommand git upload-pack "$PATH" <event.log
+#
+# If the first parameter passed is !, this instead checks that
+# the given command was not called.
+#
+test_subcommand () {
+	local negate=
+	if test "$1" = "!"
+	then
+		negate=t
+		shift
+	fi
+
+	local expr=$(printf '"%s",' "$@")
+	expr="${expr%,}"
+
+	if test -n "$negate"
+	then
+		! grep "\[$expr\]"
+	else
+		grep "\[$expr\]"
+	fi
 }
