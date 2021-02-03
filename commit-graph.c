@@ -7,7 +7,7 @@
 #include "object.h"
 #include "refs.h"
 #include "revision.h"
-#include "sha1-lookup.h"
+#include "hash-lookup.h"
 #include "commit-graph.h"
 #include "object-store.h"
 #include "alloc.h"
@@ -1043,7 +1043,7 @@ static int write_graph_chunk_data(struct hashfile *f,
 		if (!parent)
 			edge_value = GRAPH_PARENT_NONE;
 		else {
-			edge_value = sha1_pos(parent->item->object.oid.hash,
+			edge_value = hash_pos(parent->item->object.oid.hash,
 					      ctx->commits.list,
 					      ctx->commits.nr,
 					      commit_to_sha1);
@@ -1074,7 +1074,7 @@ static int write_graph_chunk_data(struct hashfile *f,
 		else if (parent->next)
 			edge_value = GRAPH_EXTRA_EDGES_NEEDED | num_extra_edges;
 		else {
-			edge_value = sha1_pos(parent->item->object.oid.hash,
+			edge_value = hash_pos(parent->item->object.oid.hash,
 					      ctx->commits.list,
 					      ctx->commits.nr,
 					      commit_to_sha1);
@@ -1143,7 +1143,7 @@ static int write_graph_chunk_extra_edges(struct hashfile *f,
 
 		/* Since num_parents > 2, this initializer is safe. */
 		for (parent = (*list)->parents->next; parent; parent = parent->next) {
-			int edge_value = sha1_pos(parent->item->object.oid.hash,
+			int edge_value = hash_pos(parent->item->object.oid.hash,
 						  ctx->commits.list,
 						  ctx->commits.nr,
 						  commit_to_sha1);
@@ -1694,8 +1694,8 @@ static int write_commit_graph_file(struct write_commit_graph_context *ctx)
 	} else {
 		hold_lock_file_for_update_mode(&lk, ctx->graph_name,
 					       LOCK_DIE_ON_ERROR, 0444);
-		fd = lk.tempfile->fd;
-		f = hashfd(lk.tempfile->fd, lk.tempfile->filename.buf);
+		fd = get_lock_file_fd(&lk);
+		f = hashfd(fd, get_lock_file_path(&lk));
 	}
 
 	chunks[0].id = GRAPH_CHUNKID_OIDFANOUT;
@@ -1833,7 +1833,7 @@ static int write_commit_graph_file(struct write_commit_graph_context *ctx)
 		result = rename(ctx->graph_name, final_graph_name);
 
 		for (i = 0; i < ctx->num_commit_graphs_after; i++)
-			fprintf(lk.tempfile->fp, "%s\n", ctx->commit_graph_hash_after[i]);
+			fprintf(get_lock_file_fp(&lk), "%s\n", ctx->commit_graph_hash_after[i]);
 
 		if (result) {
 			error(_("failed to rename temporary commit-graph file"));

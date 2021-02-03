@@ -178,19 +178,28 @@ debug () {
 	GIT_DEBUGGER="${GIT_DEBUGGER}" "$@" <&6 >&5 2>&7
 }
 
-# Call test_commit with the arguments
-# [-C <directory>] <message> [<file> [<contents> [<tag>]]]"
+# Usage: test_commit [options] <message> [<file> [<contents> [<tag>]]]
+#   -C <dir>:
+#	Run all git commands in directory <dir>
+#   --notick
+#	Do not call test_tick before making a commit
+#   --append
+#	Use "echo >>" instead of "echo >" when writing "<contents>" to
+#	"<file>"
+#   --signoff
+#	Invoke "git commit" with --signoff
+#   --author <author>
+#	Invoke "git commit" with --author <author>
 #
 # This will commit a file with the given contents and the given commit
 # message, and tag the resulting commit with the given tag name.
 #
 # <file>, <contents>, and <tag> all default to <message>.
-#
-# If the first argument is "-C", the second argument is used as a path for
-# the git invocations.
 
 test_commit () {
 	notick= &&
+	append= &&
+	author= &&
 	signoff= &&
 	indir= &&
 	while test $# != 0
@@ -198,6 +207,13 @@ test_commit () {
 		case "$1" in
 		--notick)
 			notick=yes
+			;;
+		--append)
+			append=yes
+			;;
+		--author)
+			author="$2"
+			shift
 			;;
 		--signoff)
 			signoff="$1"
@@ -214,13 +230,20 @@ test_commit () {
 	done &&
 	indir=${indir:+"$indir"/} &&
 	file=${2:-"$1.t"} &&
-	echo "${3-$1}" > "$indir$file" &&
+	if test -n "$append"
+	then
+		echo "${3-$1}" >>"$indir$file"
+	else
+		echo "${3-$1}" >"$indir$file"
+	fi &&
 	git ${indir:+ -C "$indir"} add "$file" &&
 	if test -z "$notick"
 	then
 		test_tick
 	fi &&
-	git ${indir:+ -C "$indir"} commit $signoff -m "$1" &&
+	git ${indir:+ -C "$indir"} commit \
+	    ${author:+ --author "$author"} \
+	    $signoff -m "$1" &&
 	git ${indir:+ -C "$indir"} tag "${4:-$1}"
 }
 
@@ -367,9 +390,14 @@ test_chmod () {
 	git update-index --add "--chmod=$@"
 }
 
-# Get the modebits from a file or directory.
+# Get the modebits from a file or directory, ignoring the setgid bit (g+s).
+# This bit is inherited by subdirectories at their creation. So we remove it
+# from the returning string to prevent callers from having to worry about the
+# state of the bit in the test directory.
+#
 test_modebits () {
-	ls -ld "$1" | sed -e 's|^\(..........\).*|\1|'
+	ls -ld "$1" | sed -e 's|^\(..........\).*|\1|' \
+			  -e 's|^\(......\)S|\1-|' -e 's|^\(......\)s|\1x|'
 }
 
 # Unset a configuration variable, but don't fail if it doesn't exist.
