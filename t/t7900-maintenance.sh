@@ -149,7 +149,31 @@ test_expect_success 'prefetch multiple remotes' '
 	git log prefetch/remote2/two &&
 	git fetch --all &&
 	test_cmp_rev refs/remotes/remote1/one refs/prefetch/remote1/one &&
-	test_cmp_rev refs/remotes/remote2/two refs/prefetch/remote2/two
+	test_cmp_rev refs/remotes/remote2/two refs/prefetch/remote2/two &&
+
+	test_cmp_config refs/prefetch/ log.excludedecoration &&
+	git log --oneline --decorate --all >log &&
+	! grep "prefetch" log
+'
+
+test_expect_success 'prefetch and existing log.excludeDecoration values' '
+	git config --unset-all log.excludeDecoration &&
+	git config log.excludeDecoration refs/remotes/remote1/ &&
+	git maintenance run --task=prefetch &&
+
+	git config --get-all log.excludeDecoration >out &&
+	grep refs/remotes/remote1/ out &&
+	grep refs/prefetch/ out &&
+
+	git log --oneline --decorate --all >log &&
+	! grep "prefetch" log &&
+	! grep "remote1" log &&
+	grep "remote2" log &&
+
+	# a second run does not change the config
+	git maintenance run --task=prefetch &&
+	git log --oneline --decorate --all >log2 &&
+	test_cmp log log2
 '
 
 test_expect_success 'loose-objects task' '
@@ -232,6 +256,13 @@ test_expect_success 'incremental-repack task' '
 	HEAD
 	^HEAD~1
 	EOF
+
+	# Delete refs that have not been repacked in these packs.
+	git for-each-ref --format="delete %(refname)" \
+		refs/prefetch refs/tags >refs &&
+	git update-ref --stdin <refs &&
+
+	# Replace the object directory with this pack layout.
 	rm -f $packDir/pack-* &&
 	rm -f $packDir/loose-* &&
 	ls $packDir/*.pack >packs-before &&
@@ -312,6 +343,18 @@ test_expect_success 'maintenance.incremental-repack.auto' '
 	test_subcommand git multi-pack-index write --no-progress <trace-B
 '
 
+test_expect_success 'pack-refs task' '
+	for n in $(test_seq 1 5)
+	do
+		git branch -f to-pack/$n HEAD || return 1
+	done &&
+	GIT_TRACE2_EVENT="$(pwd)/pack-refs.txt" \
+		git maintenance run --task=pack-refs &&
+	ls .git/refs/heads/ >after &&
+	test_must_be_empty after &&
+	test_subcommand git pack-refs --all --prune <pack-refs.txt
+'
+
 test_expect_success '--auto and --schedule incompatible' '
 	test_must_fail git maintenance run --auto --schedule=daily 2>err &&
 	test_i18ngrep "at most one" err
@@ -365,11 +408,15 @@ test_expect_success 'maintenance.strategy inheritance' '
 		git maintenance run --schedule=hourly --quiet &&
 	GIT_TRACE2_EVENT="$(pwd)/incremental-daily.txt" \
 		git maintenance run --schedule=daily --quiet &&
+	GIT_TRACE2_EVENT="$(pwd)/incremental-weekly.txt" \
+		git maintenance run --schedule=weekly --quiet &&
 
 	test_subcommand git commit-graph write --split --reachable \
 		--no-progress <incremental-hourly.txt &&
 	test_subcommand ! git prune-packed --quiet <incremental-hourly.txt &&
 	test_subcommand ! git multi-pack-index write --no-progress \
+		<incremental-hourly.txt &&
+	test_subcommand ! git pack-refs --all --prune \
 		<incremental-hourly.txt &&
 
 	test_subcommand git commit-graph write --split --reachable \
@@ -377,6 +424,16 @@ test_expect_success 'maintenance.strategy inheritance' '
 	test_subcommand git prune-packed --quiet <incremental-daily.txt &&
 	test_subcommand git multi-pack-index write --no-progress \
 		<incremental-daily.txt &&
+	test_subcommand ! git pack-refs --all --prune \
+		<incremental-daily.txt &&
+
+	test_subcommand git commit-graph write --split --reachable \
+		--no-progress <incremental-weekly.txt &&
+	test_subcommand git prune-packed --quiet <incremental-weekly.txt &&
+	test_subcommand git multi-pack-index write --no-progress \
+		<incremental-weekly.txt &&
+	test_subcommand git pack-refs --all --prune \
+		<incremental-weekly.txt &&
 
 	# Modify defaults
 	git config maintenance.commit-graph.schedule daily &&

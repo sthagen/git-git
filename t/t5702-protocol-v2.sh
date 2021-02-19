@@ -212,6 +212,31 @@ test_expect_success 'clone with file:// using protocol v2' '
 	grep "ref-prefix refs/tags/" log
 '
 
+test_expect_success 'clone of empty repo propagates name of default branch' '
+	test_when_finished "rm -rf file_empty_parent file_empty_child" &&
+
+	GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME= \
+	git -c init.defaultBranch=mydefaultbranch init file_empty_parent &&
+
+	GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME= \
+	git -c init.defaultBranch=main -c protocol.version=2 \
+		clone "file://$(pwd)/file_empty_parent" file_empty_child &&
+	grep "refs/heads/mydefaultbranch" file_empty_child/.git/HEAD
+'
+
+test_expect_success '...but not if explicitly forbidden by config' '
+	test_when_finished "rm -rf file_empty_parent file_empty_child" &&
+
+	GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME= \
+	git -c init.defaultBranch=mydefaultbranch init file_empty_parent &&
+	test_config -C file_empty_parent lsrefs.unborn ignore &&
+
+	GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME= \
+	git -c init.defaultBranch=main -c protocol.version=2 \
+		clone "file://$(pwd)/file_empty_parent" file_empty_child &&
+	! grep "refs/heads/mydefaultbranch" file_empty_child/.git/HEAD
+'
+
 test_expect_success 'fetch with file:// using protocol v2' '
 	test_when_finished "rm -f log" &&
 
@@ -851,8 +876,10 @@ test_expect_success 'part of packfile response provided as URI' '
 	test -f h2found &&
 
 	# Ensure that there are exactly 6 files (3 .pack and 3 .idx).
-	ls http_child/.git/objects/pack/* >filelist &&
-	test_line_count = 6 filelist
+	ls http_child/.git/objects/pack/*.pack >packlist &&
+	ls http_child/.git/objects/pack/*.idx >idxlist &&
+	test_line_count = 3 idxlist &&
+	test_line_count = 3 packlist
 '
 
 test_expect_success 'fetching with valid packfile URI but invalid hash fails' '
@@ -905,8 +932,10 @@ test_expect_success 'packfile-uri with transfer.fsckobjects' '
 		clone "$HTTPD_URL/smart/http_parent" http_child &&
 
 	# Ensure that there are exactly 4 files (2 .pack and 2 .idx).
-	ls http_child/.git/objects/pack/* >filelist &&
-	test_line_count = 4 filelist
+	ls http_child/.git/objects/pack/*.pack >packlist &&
+	ls http_child/.git/objects/pack/*.idx >idxlist &&
+	test_line_count = 2 idxlist &&
+	test_line_count = 2 packlist
 '
 
 test_expect_success 'packfile-uri with transfer.fsckobjects fails on bad object' '

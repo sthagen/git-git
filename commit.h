@@ -11,9 +11,10 @@
 #include "commit-slab.h"
 
 #define COMMIT_NOT_FROM_GRAPH 0xFFFFFFFF
-#define GENERATION_NUMBER_INFINITY 0xFFFFFFFF
-#define GENERATION_NUMBER_MAX 0x3FFFFFFF
+#define GENERATION_NUMBER_INFINITY ((1ULL << 63) - 1)
+#define GENERATION_NUMBER_V1_MAX 0x3FFFFFFF
 #define GENERATION_NUMBER_ZERO 0
+#define GENERATION_NUMBER_V2_OFFSET_MAX ((1ULL << 31) - 1)
 
 struct commit_list {
 	struct commit *item;
@@ -88,9 +89,10 @@ static inline int repo_parse_commit(struct repository *r, struct commit *item)
 	return repo_parse_commit_gently(r, item, 0);
 }
 
-static inline int parse_commit_no_graph(struct commit *commit)
+static inline int repo_parse_commit_no_graph(struct repository *r,
+					     struct commit *commit)
 {
-	return repo_parse_commit_internal(the_repository, commit, 0, 0);
+	return repo_parse_commit_internal(r, commit, 0, 0);
 }
 
 #ifndef NO_THE_REPOSITORY_COMPATIBILITY_MACROS
@@ -239,7 +241,7 @@ typedef int (*each_commit_graft_fn)(const struct commit_graft *, void *);
 
 struct commit_graft *read_graft_line(struct strbuf *line);
 /* commit_graft_pos returns an index into r->parsed_objects->grafts. */
-int commit_graft_pos(struct repository *r, const unsigned char *sha1);
+int commit_graft_pos(struct repository *r, const struct object_id *oid);
 int register_commit_graft(struct repository *r, struct commit_graft *, int);
 void prepare_commit_graft(struct repository *r);
 struct commit_graft *lookup_commit_graft(struct repository *r, const struct object_id *oid);

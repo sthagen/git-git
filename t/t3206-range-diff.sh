@@ -153,6 +153,19 @@ test_expect_success 'simple A B C (unmodified)' '
 	test_cmp expect actual
 '
 
+test_expect_success 'A^! and A^-<n> (unmodified)' '
+	git range-diff --no-color topic^! unmodified^-1 >actual &&
+	cat >expect <<-EOF &&
+	1:  $(test_oid t4) = 1:  $(test_oid u4) s/12/B/
+	EOF
+	test_cmp expect actual
+'
+
+test_expect_success 'A^{/..} is not mistaken for a range' '
+	test_must_fail git range-diff topic^.. topic^{/..} 2>error &&
+	test_i18ngrep "not a commit range" error
+'
+
 test_expect_success 'trivial reordering' '
 	git range-diff --no-color main topic reordered >actual &&
 	cat >expect <<-EOF &&
@@ -717,6 +730,21 @@ test_expect_success 'format-patch --range-diff with multiple notes' '
 	    Z@@ file: A
 	EOF
 	sed "/@@ Commit message/,/@@ file: A/!d" 0000-* >actual &&
+	test_cmp expect actual
+'
+
+test_expect_success '--left-only/--right-only' '
+	git switch --orphan left-right &&
+	test_commit first &&
+	test_commit unmatched &&
+	test_commit common &&
+	git switch -C left-right first &&
+	git cherry-pick common &&
+
+	git range-diff -s --left-only ...common >actual &&
+	head_oid=$(git rev-parse --short HEAD) &&
+	common_oid=$(git rev-parse --short common) &&
+	echo "1:  $head_oid = 2:  $common_oid common" >expect &&
 	test_cmp expect actual
 '
 
