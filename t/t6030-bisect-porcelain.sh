@@ -578,9 +578,9 @@ test_expect_success 'skipping away from skipped commit' '
 	test "$para3" = "$PARA_HASH3"
 '
 
-test_expect_success 'erroring out when using bad path parameters' '
+test_expect_success 'erroring out when using bad path arguments' '
 	test_must_fail git bisect start $PARA_HASH7 $HASH1 -- foobar 2> error.txt &&
-	test_i18ngrep "bad path parameters" error.txt
+	test_i18ngrep "bad path arguments" error.txt
 '
 
 test_expect_success 'test bisection on bare repo - --no-checkout specified' '
@@ -829,7 +829,7 @@ test_expect_success 'bisect terms needs 0 or 1 argument' '
 	test_must_fail git bisect terms 1 2 &&
 	test_must_fail git bisect terms 2>actual &&
 	echo "error: no terms defined" >expected &&
-	test_i18ncmp expected actual
+	test_cmp expected actual
 '
 
 test_expect_success 'bisect terms shows good/bad after start' '
@@ -903,7 +903,7 @@ test_expect_success 'bisect start --term-* does store terms' '
 	Your current terms are two for the old state
 	and one for the new state.
 	EOF
-	test_i18ncmp expected actual &&
+	test_cmp expected actual &&
 	git bisect terms --term-bad >actual &&
 	echo one >expected &&
 	test_cmp expected actual &&
