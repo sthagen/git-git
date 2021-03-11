@@ -349,6 +349,11 @@ static inline int noop_core_config(const char *var, const char *value, void *cb)
 #define platform_core_config noop_core_config
 #endif
 
+int lstat_cache_aware_rmdir(const char *path);
+#if !defined(__MINGW32__) && !defined(_MSC_VER)
+#define rmdir lstat_cache_aware_rmdir
+#endif
+
 #ifndef has_dos_drive_prefix
 static inline int git_has_dos_drive_prefix(const char *path)
 {
@@ -786,6 +791,12 @@ int git_snprintf(char *str, size_t maxsize,
 #define vsnprintf git_vsnprintf
 int git_vsnprintf(char *str, size_t maxsize,
 		  const char *format, va_list ap);
+#endif
+
+#ifdef OPEN_RETURNS_EINTR
+#undef open
+#define open git_open_with_retry
+int git_open_with_retry(const char *path, int flag, ...);
 #endif
 
 #ifdef __GLIBC_PREREQ
