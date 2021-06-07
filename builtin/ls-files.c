@@ -210,7 +210,7 @@ static void show_submodule(struct repository *superproject,
 {
 	struct repository subrepo;
 	const struct submodule *sub = submodule_from_path(superproject,
-							  &null_oid, path);
+							  null_oid(), path);
 
 	if (repo_submodule_init(&subrepo, superproject, sub))
 		return;
@@ -607,7 +607,7 @@ static int option_parse_exclude_standard(const struct option *opt,
 int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 {
 	int require_work_tree = 0, show_tag = 0, i;
-	const char *max_prefix;
+	char *max_prefix;
 	struct dir_struct dir;
 	struct pattern_list *pl;
 	struct string_list exclude_list = STRING_LIST_INIT_NODUP;
@@ -752,6 +752,9 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 	if (pathspec.nr && error_unmatch)
 		ps_matched = xcalloc(pathspec.nr, 1);
 
+	if ((dir.flags & DIR_SHOW_IGNORED) && !show_others && !show_cached)
+		die("ls-files -i must be used with either -o or -c");
+
 	if ((dir.flags & DIR_SHOW_IGNORED) && !exc_given)
 		die("ls-files --ignored needs some exclude pattern");
 
@@ -785,5 +788,6 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 	}
 
 	dir_clear(&dir);
+	free(max_prefix);
 	return 0;
 }

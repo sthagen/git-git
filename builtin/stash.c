@@ -833,7 +833,7 @@ static int show_stash(int argc, const char **argv, const char *prefix)
 		UNTRACKED_NONE,
 		UNTRACKED_INCLUDE,
 		UNTRACKED_ONLY
-	} show_untracked = UNTRACKED_NONE;
+	} show_untracked = show_include_untracked ? UNTRACKED_INCLUDE : UNTRACKED_NONE;
 	struct option options[] = {
 		OPT_SET_INT('u', "include-untracked", &show_untracked,
 			    N_("include untracked files in the stash"),
@@ -876,9 +876,6 @@ static int show_stash(int argc, const char **argv, const char *prefix)
 		if (show_patch)
 			rev.diffopt.output_format |= DIFF_FORMAT_PATCH;
 
-		if (show_include_untracked)
-			show_untracked = UNTRACKED_INCLUDE;
-
 		if (!show_stat && !show_patch) {
 			free_stash_info(&info);
 			return 0;
@@ -902,10 +899,14 @@ static int show_stash(int argc, const char **argv, const char *prefix)
 		diff_tree_oid(&info.b_commit, &info.w_commit, "", &rev.diffopt);
 		break;
 	case UNTRACKED_ONLY:
-		diff_root_tree_oid(&info.u_tree, "", &rev.diffopt);
+		if (info.has_u)
+			diff_root_tree_oid(&info.u_tree, "", &rev.diffopt);
 		break;
 	case UNTRACKED_INCLUDE:
-		diff_include_untracked(&info, &rev.diffopt);
+		if (info.has_u)
+			diff_include_untracked(&info, &rev.diffopt);
+		else
+			diff_tree_oid(&info.b_commit, &info.w_commit, "", &rev.diffopt);
 		break;
 	}
 	log_tree_diff_flush(&rev);
