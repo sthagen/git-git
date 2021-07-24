@@ -29,6 +29,7 @@
 #include "entry.h"
 #include "ll-merge.h"
 #include "object-store.h"
+#include "promisor-remote.h"
 #include "revision.h"
 #include "strmap.h"
 #include "submodule.h"
@@ -765,12 +766,15 @@ static void add_pair(struct merge_options *opt,
 	int names_idx = is_add ? side : 0;
 
 	if (is_add) {
+		assert(match_mask == 0 || match_mask == 6);
 		if (strset_contains(&renames->cached_target_names[side],
 				    pathname))
 			return;
 	} else {
 		unsigned content_relevant = (match_mask == 0);
 		unsigned location_relevant = (dir_rename_mask == 0x07);
+
+		assert(match_mask == 0 || match_mask == 3 || match_mask == 5);
 
 		/*
 		 * If pathname is found in cached_irrelevant[side] due to
@@ -1836,7 +1840,7 @@ static void compute_collisions(struct strmap *collisions,
 			free(new_path);
 		} else {
 			CALLOC_ARRAY(collision_info, 1);
-			string_list_init(&collision_info->source_files, 0);
+			string_list_init_nodup(&collision_info->source_files);
 			strmap_put(collisions, new_path, collision_info);
 		}
 		string_list_insert(&collision_info->source_files,
@@ -2533,7 +2537,7 @@ static int compare_pairs(const void *a_, const void *b_)
 	return strcmp(a->one->path, b->one->path);
 }
 
-/* Call diffcore_rename() to compute which files have changed on given side */
+/* Call diffcore_rename() to update deleted/added pairs into rename pairs */
 static void detect_regular_renames(struct merge_options *opt,
 				   unsigned side_index)
 {
@@ -2586,8 +2590,10 @@ static void detect_regular_renames(struct merge_options *opt,
 }
 
 /*
- * Get information of all renames which occurred in 'side_pairs', discarding
- * non-renames.
+ * Get information of all renames which occurred in 'side_pairs', making use
+ * of any implicit directory renames in side_dir_renames (also making use of
+ * implicit directory renames rename_exclusions as needed by
+ * check_for_directory_rename()).  Add all (updated) renames into result.
  */
 static int collect_renames(struct merge_options *opt,
 			   struct diff_queue_struct *result,
@@ -2746,31 +2752,58 @@ simple_cleanup:
 
 /*** Function Grouping: functions related to process_entries() ***/
 
-static int string_list_df_name_compare(const char *one, const char *two)
+static int sort_dirs_next_to_their_children(const char *one, const char *two)
 {
-	int onelen = strlen(one);
-	int twolen = strlen(two);
+	unsigned char c1, c2;
+
 	/*
-	 * Here we only care that entries for D/F conflicts are
-	 * adjacent, in particular with the file of the D/F conflict
-	 * appearing before files below the corresponding directory.
-	 * The order of the rest of the list is irrelevant for us.
+	 * Here we only care that entries for directories appear adjacent
+	 * to and before files underneath the directory.  We can achieve
+	 * that by pretending to add a trailing slash to every file and
+	 * then sorting.  In other words, we do not want the natural
+	 * sorting of
+	 *     foo
+	 *     foo.txt
+	 *     foo/bar
+	 * Instead, we want "foo" to sort as though it were "foo/", so that
+	 * we instead get
+	 *     foo.txt
+	 *     foo
+	 *     foo/bar
+	 * To achieve this, we basically implement our own strcmp, except that
+	 * if we get to the end of either string instead of comparing NUL to
+	 * another character, we compare '/' to it.
 	 *
-	 * To achieve this, we sort with df_name_compare and provide
-	 * the mode S_IFDIR so that D/F conflicts will sort correctly.
-	 * We use the mode S_IFDIR for everything else for simplicity,
-	 * since in other cases any changes in their order due to
-	 * sorting cause no problems for us.
+	 * If this unusual "sort as though '/' were appended" perplexes
+	 * you, perhaps it will help to note that this is not the final
+	 * sort.  write_tree() will sort again without the trailing slash
+	 * magic, but just on paths immediately under a given tree.
+	 *
+	 * The reason to not use df_name_compare directly was that it was
+	 * just too expensive (we don't have the string lengths handy), so
+	 * it was reimplemented.
 	 */
-	int cmp = df_name_compare(one, onelen, S_IFDIR,
-				  two, twolen, S_IFDIR);
+
 	/*
-	 * Now that 'foo' and 'foo/bar' compare equal, we have to make sure
-	 * that 'foo' comes before 'foo/bar'.
+	 * NOTE: This function will never be called with two equal strings,
+	 * because it is used to sort the keys of a strmap, and strmaps have
+	 * unique keys by construction.  That simplifies our c1==c2 handling
+	 * below.
 	 */
-	if (cmp)
-		return cmp;
-	return onelen - twolen;
+
+	while (*one && (*one == *two)) {
+		one++;
+		two++;
+	}
+
+	c1 = *one ? *one : '/';
+	c2 = *two ? *two : '/';
+
+	if (c1 == c2) {
+		/* Getting here means one is a leading directory of the other */
+		return (*one) ? 1 : -1;
+	} else
+		return c1 - c2;
 }
 
 static int read_oid_strbuf(struct merge_options *opt,
@@ -3237,7 +3270,7 @@ static void process_entry(struct merge_options *opt,
 	 *       above.
 	 */
 	if (ci->match_mask) {
-		ci->merged.clean = 1;
+		ci->merged.clean = !ci->df_conflict && !ci->path_conflict;
 		if (ci->match_mask == 6) {
 			/* stages[1] == stages[2] */
 			ci->merged.result.mode = ci->stages[1].mode;
@@ -3249,6 +3282,8 @@ static void process_entry(struct merge_options *opt,
 
 			ci->merged.result.mode = ci->stages[side].mode;
 			ci->merged.is_null = !ci->merged.result.mode;
+			if (ci->merged.is_null)
+				ci->merged.clean = 1;
 			oidcpy(&ci->merged.result.oid, &ci->stages[side].oid);
 
 			assert(othermask == 2 || othermask == 4);
@@ -3421,6 +3456,7 @@ static void process_entry(struct merge_options *opt,
 				   path)) {
 			ci->merged.is_null = 1;
 			ci->merged.clean = 1;
+			assert(!ci->df_conflict && !ci->path_conflict);
 		} else if (ci->path_conflict &&
 			   oideq(&ci->stages[0].oid, &ci->stages[side].oid)) {
 			/*
@@ -3447,6 +3483,7 @@ static void process_entry(struct merge_options *opt,
 		ci->merged.is_null = 1;
 		ci->merged.result.mode = 0;
 		oidcpy(&ci->merged.result.oid, null_oid());
+		assert(!ci->df_conflict);
 		ci->merged.clean = !ci->path_conflict;
 	}
 
@@ -3457,7 +3494,57 @@ static void process_entry(struct merge_options *opt,
 	 */
 	if (!ci->merged.clean)
 		strmap_put(&opt->priv->conflicted, path, ci);
+
+	/* Record metadata for ci->merged in dir_metadata */
 	record_entry_for_tree(dir_metadata, path, &ci->merged);
+}
+
+static void prefetch_for_content_merges(struct merge_options *opt,
+					struct string_list *plist)
+{
+	struct string_list_item *e;
+	struct oid_array to_fetch = OID_ARRAY_INIT;
+
+	if (opt->repo != the_repository || !has_promisor_remote())
+		return;
+
+	for (e = &plist->items[plist->nr-1]; e >= plist->items; --e) {
+		/* char *path = e->string; */
+		struct conflict_info *ci = e->util;
+		int i;
+
+		/* Ignore clean entries */
+		if (ci->merged.clean)
+			continue;
+
+		/* Ignore entries that don't need a content merge */
+		if (ci->match_mask || ci->filemask < 6 ||
+		    !S_ISREG(ci->stages[1].mode) ||
+		    !S_ISREG(ci->stages[2].mode) ||
+		    oideq(&ci->stages[1].oid, &ci->stages[2].oid))
+			continue;
+
+		/* Also don't need content merge if base matches either side */
+		if (ci->filemask == 7 &&
+		    S_ISREG(ci->stages[0].mode) &&
+		    (oideq(&ci->stages[0].oid, &ci->stages[1].oid) ||
+		     oideq(&ci->stages[0].oid, &ci->stages[2].oid)))
+			continue;
+
+		for (i = 0; i < 3; i++) {
+			unsigned side_mask = (1 << i);
+			struct version_info *vi = &ci->stages[i];
+
+			if ((ci->filemask & side_mask) &&
+			    S_ISREG(vi->mode) &&
+			    oid_object_info_extended(opt->repo, &vi->oid, NULL,
+						     OBJECT_INFO_FOR_PREFETCH))
+				oid_array_append(&to_fetch, &vi->oid);
+		}
+	}
+
+	promisor_remote_get_direct(opt->repo, to_fetch.oid, to_fetch.nr);
+	oid_array_clear(&to_fetch);
 }
 
 static void process_entries(struct merge_options *opt,
@@ -3490,7 +3577,7 @@ static void process_entries(struct merge_options *opt,
 	trace2_region_leave("merge", "plist copy", opt->repo);
 
 	trace2_region_enter("merge", "plist special sort", opt->repo);
-	plist.cmp = string_list_df_name_compare;
+	plist.cmp = sort_dirs_next_to_their_children;
 	string_list_sort(&plist);
 	trace2_region_leave("merge", "plist special sort", opt->repo);
 
@@ -3506,6 +3593,7 @@ static void process_entries(struct merge_options *opt,
 	 * the way when it is time to process the file at the same path).
 	 */
 	trace2_region_enter("merge", "processing", opt->repo);
+	prefetch_for_content_merges(opt, &plist);
 	for (entry = &plist.items[plist.nr-1]; entry >= plist.items; --entry) {
 		char *path = entry->string;
 		/*
@@ -3942,7 +4030,7 @@ static void merge_start(struct merge_options *opt, struct merge_result *result)
 	 */
 	strmap_init_with_options(&opt->priv->paths, NULL, 0);
 	strmap_init_with_options(&opt->priv->conflicted, NULL, 0);
-	string_list_init(&opt->priv->paths_to_free, 0);
+	string_list_init_nodup(&opt->priv->paths_to_free);
 
 	/*
 	 * keys & strbufs in output will sometimes need to outlive "paths",
