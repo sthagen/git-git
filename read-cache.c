@@ -27,6 +27,7 @@
 #include "progress.h"
 #include "sparse-index.h"
 #include "csum-file.h"
+#include "promisor-remote.h"
 
 /* Mask for the name length in ce_flags in the on-disk index */
 
@@ -1585,8 +1586,7 @@ int refresh_index(struct index_state *istate, unsigned int flags,
 	 */
 	preload_index(istate, pathspec, 0);
 	trace2_region_enter("index", "refresh", NULL);
-	/* TODO: audit for interaction with sparse-index. */
-	ensure_full_index(istate);
+
 	for (i = 0; i < istate->cache_nr; i++) {
 		struct cache_entry *ce, *new_entry;
 		int cache_errno = 0;
@@ -1599,6 +1599,13 @@ int refresh_index(struct index_state *istate, unsigned int flags,
 		if (ignore_submodules && S_ISGITLINK(ce->ce_mode))
 			continue;
 		if (ignore_skip_worktree && ce_skip_worktree(ce))
+			continue;
+
+		/*
+		 * If this entry is a sparse directory, then there isn't
+		 * any stat() information to update. Ignore the entry.
+		 */
+		if (S_ISSPARSEDIR(ce->ce_mode))
 			continue;
 
 		if (pathspec && !ce_path_match(istate, ce, pathspec, seen))
@@ -3656,4 +3663,26 @@ static void write_ieot_extension(struct strbuf *sb, struct index_entry_offset_ta
 		put_be32(&buffer, ieot->entries[i].nr);
 		strbuf_add(sb, &buffer, sizeof(uint32_t));
 	}
+}
+
+void prefetch_cache_entries(const struct index_state *istate,
+			    must_prefetch_predicate must_prefetch)
+{
+	int i;
+	struct oid_array to_fetch = OID_ARRAY_INIT;
+
+	for (i = 0; i < istate->cache_nr; i++) {
+		struct cache_entry *ce = istate->cache[i];
+
+		if (S_ISGITLINK(ce->ce_mode) || !must_prefetch(ce))
+			continue;
+		if (!oid_object_info_extended(the_repository, &ce->oid,
+					      NULL,
+					      OBJECT_INFO_FOR_PREFETCH))
+			continue;
+		oid_array_append(&to_fetch, &ce->oid);
+	}
+	promisor_remote_get_direct(the_repository,
+				   to_fetch.oid, to_fetch.nr);
+	oid_array_clear(&to_fetch);
 }
