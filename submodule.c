@@ -165,6 +165,8 @@ void stage_updated_gitmodules(struct index_state *istate)
 		die(_("staging updated .gitmodules failed"));
 }
 
+static struct string_list added_submodule_odb_paths = STRING_LIST_INIT_NODUP;
+
 /* TODO: remove this function, use repo_submodule_init instead. */
 int add_submodule_odb(const char *path)
 {
@@ -178,9 +180,30 @@ int add_submodule_odb(const char *path)
 		ret = -1;
 		goto done;
 	}
-	add_to_alternates_memory(objects_directory.buf);
+	string_list_insert(&added_submodule_odb_paths,
+			   strbuf_detach(&objects_directory, NULL));
 done:
 	strbuf_release(&objects_directory);
+	return ret;
+}
+
+void add_submodule_odb_by_path(const char *path)
+{
+	string_list_insert(&added_submodule_odb_paths, xstrdup(path));
+}
+
+int register_all_submodule_odb_as_alternates(void)
+{
+	int i;
+	int ret = added_submodule_odb_paths.nr;
+
+	for (i = 0; i < added_submodule_odb_paths.nr; i++)
+		add_to_alternates_memory(added_submodule_odb_paths.items[i].string);
+	if (ret) {
+		string_list_clear(&added_submodule_odb_paths, 0);
+		if (git_env_bool("GIT_TEST_FATAL_REGISTER_SUBMODULE_ODB", 0))
+			BUG("register_all_submodule_odb_as_alternates() called");
+	}
 	return ret;
 }
 
@@ -236,6 +259,11 @@ int option_parse_recurse_submodules_worktree_updater(const struct option *opt,
 
 /*
  * Determine if a submodule has been initialized at a given 'path'
+ */
+/*
+ * NEEDSWORK: Emit a warning if submodule.active exists, but is valueless,
+ * ie, the config looks like: "[submodule] active\n".
+ * Since that is an invalid pathspec, we should inform the user.
  */
 int is_submodule_active(struct repository *repo, const char *path)
 {
@@ -697,8 +725,20 @@ void show_submodule_inline_diff(struct diff_options *o, const char *path,
 		strvec_push(&cp.args, oid_to_hex(new_oid));
 
 	prepare_submodule_repo_env(&cp.env_array);
-	if (start_command(&cp))
+
+	if (!is_directory(path)) {
+		/* fall back to absorbed git dir, if any */
+		if (!sub)
+			goto done;
+		cp.dir = sub->gitdir;
+		strvec_push(&cp.env_array, GIT_DIR_ENVIRONMENT "=.");
+		strvec_push(&cp.env_array, GIT_WORK_TREE_ENVIRONMENT "=.");
+	}
+
+	if (start_command(&cp)) {
 		diff_emit_submodule_error(o, "(diff failed)\n");
+		goto done;
+	}
 
 	while (strbuf_getwholeline_fd(&sb, cp.out, '\n') != EOF)
 		diff_emit_submodule_pipethrough(o, sb.buf, sb.len);

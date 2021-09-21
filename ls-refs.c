@@ -107,7 +107,7 @@ static int send_ref(const char *refname, const struct object_id *oid,
 	}
 
 	strbuf_addch(&data->buf, '\n');
-	packet_write(1, data->buf.buf, data->buf.len);
+	packet_fwrite(stdout, data->buf.buf, data->buf.len);
 
 	return 0;
 }
@@ -139,8 +139,7 @@ static int ls_refs_config(const char *var, const char *value, void *data)
 	return parse_hide_refs_config(var, value, "uploadpack");
 }
 
-int ls_refs(struct repository *r, struct strvec *keys,
-	    struct packet_reader *request)
+int ls_refs(struct repository *r, struct packet_reader *request)
 {
 	struct ls_refs_data data;
 
@@ -173,7 +172,7 @@ int ls_refs(struct repository *r, struct strvec *keys,
 		strvec_push(&data.prefixes, "");
 	for_each_fullref_in_prefixes(get_git_namespace(), data.prefixes.v,
 				     send_ref, &data, 0);
-	packet_flush(1);
+	packet_fflush(stdout);
 	strvec_clear(&data.prefixes);
 	strbuf_release(&data.buf);
 	return 0;

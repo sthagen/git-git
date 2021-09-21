@@ -32,6 +32,7 @@
 #include "packfile.h"
 #include "object-store.h"
 #include "promisor-remote.h"
+#include "submodule.h"
 
 /* The maximum size for an object header. */
 #define MAX_HEADER_LEN 32
@@ -820,6 +821,27 @@ out:
 	return ref_git;
 }
 
+struct object_directory *find_odb(struct repository *r, const char *obj_dir)
+{
+	struct object_directory *odb;
+	char *obj_dir_real = real_pathdup(obj_dir, 1);
+	struct strbuf odb_path_real = STRBUF_INIT;
+
+	prepare_alt_odb(r);
+	for (odb = r->objects->odb; odb; odb = odb->next) {
+		strbuf_realpath(&odb_path_real, odb->path, 1);
+		if (!strcmp(obj_dir_real, odb_path_real.buf))
+			break;
+	}
+
+	free(obj_dir_real);
+	strbuf_release(&odb_path_real);
+
+	if (!odb)
+		die(_("could not find object directory matching %s"), obj_dir);
+	return odb;
+}
+
 static void fill_alternate_refs_command(struct child_process *cmd,
 					const char *repo_path)
 {
@@ -1591,6 +1613,10 @@ static int do_oid_object_info_extended(struct repository *r,
 			if (find_pack_entry(r, real, &e))
 				break;
 		}
+
+		if (register_all_submodule_odb_as_alternates())
+			/* We added some alternates; retry */
+			continue;
 
 		/* Check if it is a missing object */
 		if (fetch_if_missing && repo_has_promisor_remote(r) &&

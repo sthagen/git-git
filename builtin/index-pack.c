@@ -122,6 +122,7 @@ static int strict;
 static int do_fsck_object;
 static struct fsck_options fsck_options = FSCK_OPTIONS_MISSING_GITMODULES;
 static int verbose;
+static const char *progress_title;
 static int show_resolving_progress;
 static int show_stat;
 static int check_self_contained_and_connected;
@@ -1153,6 +1154,7 @@ static void parse_pack_objects(unsigned char *hash)
 
 	if (verbose)
 		progress = start_progress(
+				progress_title ? progress_title :
 				from_stdin ? _("Receiving objects") : _("Indexing objects"),
 				nr_objects);
 	for (i = 0; i < nr_objects; i++) {
@@ -1477,6 +1479,22 @@ static void write_special_file(const char *suffix, const char *msg,
 	strbuf_release(&name_buf);
 }
 
+static void rename_tmp_packfile(const char **final_name,
+				const char *curr_name,
+				struct strbuf *name, unsigned char *hash,
+				const char *ext, int make_read_only_if_same)
+{
+	if (*final_name != curr_name) {
+		if (!*final_name)
+			*final_name = odb_pack_name(name, hash, ext);
+		if (finalize_object_file(curr_name, *final_name))
+			die(_("unable to rename temporary '*.%s' file to '%s"),
+			    ext, *final_name);
+	} else if (make_read_only_if_same) {
+		chmod(*final_name, 0444);
+	}
+}
+
 static void final(const char *final_pack_name, const char *curr_pack_name,
 		  const char *final_index_name, const char *curr_index_name,
 		  const char *final_rev_index_name, const char *curr_rev_index_name,
@@ -1505,31 +1523,13 @@ static void final(const char *final_pack_name, const char *curr_pack_name,
 		write_special_file("promisor", promisor_msg, final_pack_name,
 				   hash, NULL);
 
-	if (final_pack_name != curr_pack_name) {
-		if (!final_pack_name)
-			final_pack_name = odb_pack_name(&pack_name, hash, "pack");
-		if (finalize_object_file(curr_pack_name, final_pack_name))
-			die(_("cannot store pack file"));
-	} else if (from_stdin)
-		chmod(final_pack_name, 0444);
-
-	if (final_index_name != curr_index_name) {
-		if (!final_index_name)
-			final_index_name = odb_pack_name(&index_name, hash, "idx");
-		if (finalize_object_file(curr_index_name, final_index_name))
-			die(_("cannot store index file"));
-	} else
-		chmod(final_index_name, 0444);
-
-	if (curr_rev_index_name) {
-		if (final_rev_index_name != curr_rev_index_name) {
-			if (!final_rev_index_name)
-				final_rev_index_name = odb_pack_name(&rev_index_name, hash, "rev");
-			if (finalize_object_file(curr_rev_index_name, final_rev_index_name))
-				die(_("cannot store reverse index file"));
-		} else
-			chmod(final_rev_index_name, 0444);
-	}
+	rename_tmp_packfile(&final_pack_name, curr_pack_name, &pack_name,
+			    hash, "pack", from_stdin);
+	if (curr_rev_index_name)
+		rename_tmp_packfile(&final_rev_index_name, curr_rev_index_name,
+				    &rev_index_name, hash, "rev", 1);
+	rename_tmp_packfile(&final_index_name, curr_index_name, &index_name,
+			    hash, "idx", 1);
 
 	if (do_fsck_object) {
 		struct packed_git *p;
@@ -1802,6 +1802,10 @@ int cmd_index_pack(int argc, const char **argv, const char *prefix)
 				input_len = sizeof(*hdr);
 			} else if (!strcmp(arg, "-v")) {
 				verbose = 1;
+			} else if (!strcmp(arg, "--progress-title")) {
+				if (progress_title || (i+1) >= argc)
+					usage(index_pack_usage);
+				progress_title = argv[++i];
 			} else if (!strcmp(arg, "--show-resolving-progress")) {
 				show_resolving_progress = 1;
 			} else if (!strcmp(arg, "--report-end-of-input")) {

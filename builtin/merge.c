@@ -469,7 +469,6 @@ static void finish(struct commit *head_commit,
 			 * We ignore errors in 'gc --auto', since the
 			 * user should see them.
 			 */
-			close_object_store(the_repository->objects);
 			run_auto_maintenance(verbosity < 0);
 		}
 	}
@@ -1275,6 +1274,9 @@ int cmd_merge(int argc, const char **argv, const char *prefix)
 
 	if (argc == 2 && !strcmp(argv[1], "-h"))
 		usage_with_options(builtin_merge_usage, builtin_merge_options);
+
+	prepare_repo_settings(the_repository);
+	the_repository->settings.command_requires_full_index = 0;
 
 	/*
 	 * Check if we are _not_ on a detached HEAD, i.e. if there is a

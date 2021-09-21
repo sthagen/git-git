@@ -1299,6 +1299,13 @@ int looks_like_command_line_option(const char *str);
 
 /**
  * Return a newly allocated string with the evaluation of
+ * "$XDG_CONFIG_HOME/$subdir/$filename" if $XDG_CONFIG_HOME is non-empty, otherwise
+ * "$HOME/.config/$subdir/$filename". Return NULL upon error.
+ */
+char *xdg_config_home_for(const char *subdir, const char *filename);
+
+/**
+ * Return a newly allocated string with the evaluation of
  * "$XDG_CONFIG_HOME/git/$filename" if $XDG_CONFIG_HOME is non-empty, otherwise
  * "$HOME/.config/git/$filename". Return NULL upon error.
  */
@@ -1738,6 +1745,8 @@ extern const char *git_mailmap_blob;
 void maybe_flush_or_die(FILE *, const char *);
 __attribute__((format (printf, 2, 3)))
 void fprintf_or_die(FILE *, const char *fmt, ...);
+void fwrite_or_die(FILE *f, const void *buf, size_t count);
+void fflush_or_die(FILE *f);
 
 #define COPY_READ_ERROR (-2)
 #define COPY_WRITE_ERROR (-3)

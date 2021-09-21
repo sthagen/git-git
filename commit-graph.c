@@ -713,6 +713,7 @@ static void close_commit_graph_one(struct commit_graph *g)
 	if (!g)
 		return;
 
+	clear_commit_graph_data_slab(&commit_graph_data_slab);
 	close_commit_graph_one(g->base_graph);
 	free_commit_graph(g);
 }
@@ -2125,7 +2126,7 @@ static void sort_and_scan_merged_commits(struct write_commit_graph_context *ctx)
 
 	ctx->num_extra_edges = 0;
 	for (i = 0; i < ctx->commits.nr; i++) {
-		display_progress(ctx->progress, i);
+		display_progress(ctx->progress, i + 1);
 
 		if (i && oideq(&ctx->commits.list[i - 1]->object.oid,
 			  &ctx->commits.list[i]->object.oid)) {
