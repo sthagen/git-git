@@ -209,10 +209,8 @@ static void show_submodule(struct repository *superproject,
 			   struct dir_struct *dir, const char *path)
 {
 	struct repository subrepo;
-	const struct submodule *sub = submodule_from_path(superproject,
-							  null_oid(), path);
 
-	if (repo_submodule_init(&subrepo, superproject, sub))
+	if (repo_submodule_init(&subrepo, superproject, path, null_oid()))
 		return;
 
 	if (repo_read_index(&subrepo) < 0)
@@ -614,7 +612,7 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 	struct option builtin_ls_files_options[] = {
 		/* Think twice before adding "--nul" synonym to this */
 		OPT_SET_INT('z', NULL, &line_terminator,
-			N_("paths are separated with NUL character"), '\0'),
+			N_("separate paths with the NUL character"), '\0'),
 		OPT_BOOL('t', NULL, &show_tag,
 			N_("identify the file status with tags")),
 		OPT_BOOL('v', NULL, &show_valid_bit,
@@ -651,7 +649,7 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 			N_("skip files matching pattern"),
 			PARSE_OPT_NONEG, option_parse_exclude),
 		OPT_CALLBACK_F('X', "exclude-from", &dir, N_("file"),
-			N_("exclude patterns are read from <file>"),
+			N_("read exclude patterns from <file>"),
 			PARSE_OPT_NONEG, option_parse_exclude_from),
 		OPT_STRING(0, "exclude-per-directory", &dir.exclude_per_dir, N_("file"),
 			N_("read additional per-directory exclude patterns in <file>")),
