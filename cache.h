@@ -995,14 +995,6 @@ extern int core_apply_sparse_checkout;
 extern int core_sparse_checkout_cone;
 
 /*
- * Include broken refs in all ref iterations, which will
- * generally choke dangerous operations rather than letting
- * them silently proceed without taking the broken ref into
- * account.
- */
-extern int ref_paranoia;
-
-/*
  * Returns the boolean value of $GIT_OPTIONAL_LOCKS (or the default value).
  */
 int use_optional_locks(void);
@@ -1625,7 +1617,9 @@ struct cache_def {
 	int track_flags;
 	int prefix_len_stat_func;
 };
-#define CACHE_DEF_INIT { STRBUF_INIT, 0, 0, 0 }
+#define CACHE_DEF_INIT { \
+	.path = STRBUF_INIT, \
+}
 static inline void cache_def_clear(struct cache_def *cache)
 {
 	strbuf_release(&cache->path);
