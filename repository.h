@@ -4,6 +4,7 @@
 #include "path.h"
 
 struct config_set;
+struct fsmonitor_settings;
 struct git_hash_algo;
 struct index_state;
 struct lock_file;
@@ -11,6 +12,7 @@ struct pathspec;
 struct raw_object_store;
 struct submodule_cache;
 struct promisor_remote_config;
+struct remote_state;
 
 enum untracked_cache_setting {
 	UNTRACKED_CACHE_KEEP,
@@ -19,7 +21,7 @@ enum untracked_cache_setting {
 };
 
 enum fetch_negotiation_setting {
-	FETCH_NEGOTIATION_DEFAULT,
+	FETCH_NEGOTIATION_CONSECUTIVE,
 	FETCH_NEGOTIATION_SKIPPING,
 	FETCH_NEGOTIATION_NOOP,
 };
@@ -34,6 +36,8 @@ struct repo_settings {
 	int command_requires_full_index;
 	int sparse_index;
 
+	struct fsmonitor_settings *fsmonitor; /* lazily loaded */
+
 	int index_version;
 	enum untracked_cache_setting core_untracked_cache;
 
@@ -41,6 +45,18 @@ struct repo_settings {
 	enum fetch_negotiation_setting fetch_negotiation_algorithm;
 
 	int core_multi_pack_index;
+};
+
+struct repo_path_cache {
+	char *squash_msg;
+	char *merge_msg;
+	char *merge_rr;
+	char *merge_mode;
+	char *merge_head;
+	char *merge_autostash;
+	char *auto_merge;
+	char *fetch_head;
+	char *shallow;
 };
 
 struct repository {
@@ -81,7 +97,7 @@ struct repository {
 	/*
 	 * Contains path to often used file names.
 	 */
-	struct path_cache cached_paths;
+	struct repo_path_cache cached_paths;
 
 	/*
 	 * Path to the repository's graft file.
@@ -127,6 +143,9 @@ struct repository {
 	 */
 	struct index_state *index;
 
+	/* Repository's remotes and associated structures. */
+	struct remote_state *remote_state;
+
 	/* Repository's current hash algorithm, as serialized on disk. */
 	const struct git_hash_algo *hash_algo;
 
@@ -158,6 +177,7 @@ struct set_gitdir_args {
 	const char *graft_file;
 	const char *index_file;
 	const char *alternate_db;
+	int disable_ref_updates;
 };
 
 void repo_set_gitdir(struct repository *repo, const char *root,

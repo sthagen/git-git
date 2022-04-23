@@ -2,6 +2,7 @@
 #include "config.h"
 #include "repository.h"
 #include "midx.h"
+#include "compat/fsmonitor/fsm-listen.h"
 
 static void repo_cfg_bool(struct repository *r, const char *key, int *dest,
 			  int def)
@@ -17,13 +18,16 @@ void prepare_repo_settings(struct repository *r)
 	char *strval;
 	int manyfiles;
 
+	if (!r->gitdir)
+		BUG("Cannot add settings for uninitialized repository");
+
 	if (r->settings.initialized++)
 		return;
 
 	/* Defaults */
 	r->settings.index_version = -1;
 	r->settings.core_untracked_cache = UNTRACKED_CACHE_KEEP;
-	r->settings.fetch_negotiation_algorithm = FETCH_NEGOTIATION_DEFAULT;
+	r->settings.fetch_negotiation_algorithm = FETCH_NEGOTIATION_CONSECUTIVE;
 
 	/* Booleans config or default, cascades to other settings */
 	repo_cfg_bool(r, "feature.manyfiles", &manyfiles, 0);
@@ -78,10 +82,17 @@ void prepare_repo_settings(struct repository *r)
 	}
 
 	if (!repo_config_get_string(r, "fetch.negotiationalgorithm", &strval)) {
+		int fetch_default = r->settings.fetch_negotiation_algorithm;
 		if (!strcasecmp(strval, "skipping"))
 			r->settings.fetch_negotiation_algorithm = FETCH_NEGOTIATION_SKIPPING;
 		else if (!strcasecmp(strval, "noop"))
 			r->settings.fetch_negotiation_algorithm = FETCH_NEGOTIATION_NOOP;
+		else if (!strcasecmp(strval, "consecutive"))
+			r->settings.fetch_negotiation_algorithm = FETCH_NEGOTIATION_CONSECUTIVE;
+		else if (!strcasecmp(strval, "default"))
+			r->settings.fetch_negotiation_algorithm = fetch_default;
+		else
+			die("unknown fetch negotiation algorithm '%s'", strval);
 	}
 
 	/*

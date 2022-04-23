@@ -99,13 +99,9 @@ static int convert_to_sparse_rec(struct index_state *istate,
 
 int set_sparse_index_config(struct repository *repo, int enable)
 {
-	int res;
-	char *config_path = repo_git_path(repo, "config.worktree");
-	res = git_config_set_in_file_gently(config_path,
-					    "index.sparse",
-					    enable ? "true" : NULL);
-	free(config_path);
-
+	int res = repo_config_set_worktree_gently(repo,
+						  "index.sparse",
+						  enable ? "true" : "false");
 	prepare_repo_settings(repo);
 	repo->settings.sparse_index = enable;
 	return res;
@@ -122,21 +118,21 @@ static int index_has_unmerged_entries(struct index_state *istate)
 	return 0;
 }
 
-int convert_to_sparse(struct index_state *istate, int flags)
+static int is_sparse_index_allowed(struct index_state *istate, int flags)
 {
-	int test_env;
-	if (istate->sparse_index || !istate->cache_nr ||
-	    !core_apply_sparse_checkout || !core_sparse_checkout_cone)
+	if (!core_apply_sparse_checkout || !core_sparse_checkout_cone)
 		return 0;
 
 	if (!istate->repo)
 		istate->repo = the_repository;
 
 	if (!(flags & SPARSE_INDEX_MEMORY_ONLY)) {
+		int test_env;
+
 		/*
 		 * The sparse index is not (yet) integrated with a split index.
 		 */
-		if (istate->split_index)
+		if (istate->split_index || git_env_bool("GIT_TEST_SPLIT_INDEX", 0))
 			return 0;
 		/*
 		 * The GIT_TEST_SPARSE_INDEX environment variable triggers the
@@ -168,6 +164,19 @@ int convert_to_sparse(struct index_state *istate, int flags)
 	if (!istate->sparse_checkout_patterns->use_cone_patterns)
 		return 0;
 
+	return 1;
+}
+
+int convert_to_sparse(struct index_state *istate, int flags)
+{
+	/*
+	 * If the index is already sparse, empty, or otherwise
+	 * cannot be converted to sparse, do not convert.
+	 */
+	if (istate->sparse_index || !istate->cache_nr ||
+	    !is_sparse_index_allowed(istate, flags))
+		return 0;
+
 	/*
 	 * NEEDSWORK: If we have unmerged entries, then stay full.
 	 * Unmerged entries prevent the cache-tree extension from working.
@@ -175,17 +184,20 @@ int convert_to_sparse(struct index_state *istate, int flags)
 	if (index_has_unmerged_entries(istate))
 		return 0;
 
-	/* Clear and recompute the cache-tree */
-	cache_tree_free(&istate->cache_tree);
-	/*
-	 * Silently return if there is a problem with the cache tree update,
-	 * which might just be due to a conflict state in some entry.
-	 *
-	 * This might create new tree objects, so be sure to use
-	 * WRITE_TREE_MISSING_OK.
-	 */
-	if (cache_tree_update(istate, WRITE_TREE_MISSING_OK))
-		return 0;
+	if (!cache_tree_fully_valid(istate->cache_tree)) {
+		/* Clear and recompute the cache-tree */
+		cache_tree_free(&istate->cache_tree);
+
+		/*
+		 * Silently return if there is a problem with the cache tree update,
+		 * which might just be due to a conflict state in some entry.
+		 *
+		 * This might create new tree objects, so be sure to use
+		 * WRITE_TREE_MISSING_OK.
+		 */
+		if (cache_tree_update(istate, WRITE_TREE_MISSING_OK))
+			return 0;
+	}
 
 	remove_fsmonitor(istate);
 
@@ -311,6 +323,92 @@ void ensure_full_index(struct index_state *istate)
 	cache_tree_update(istate, 0);
 
 	trace2_region_leave("index", "ensure_full_index", istate->repo);
+}
+
+void ensure_correct_sparsity(struct index_state *istate)
+{
+	/*
+	 * If the index can be sparse, make it sparse. Otherwise,
+	 * ensure the index is full.
+	 */
+	if (is_sparse_index_allowed(istate, 0))
+		convert_to_sparse(istate, 0);
+	else
+		ensure_full_index(istate);
+}
+
+static int path_found(const char *path, const char **dirname, size_t *dir_len,
+		      int *dir_found)
+{
+	struct stat st;
+	char *newdir;
+	char *tmp;
+
+	/*
+	 * If dirname corresponds to a directory that doesn't exist, and this
+	 * path starts with dirname, then path can't exist.
+	 */
+	if (!*dir_found && !memcmp(path, *dirname, *dir_len))
+		return 0;
+
+	/*
+	 * If path itself exists, return 1.
+	 */
+	if (!lstat(path, &st))
+		return 1;
+
+	/*
+	 * Otherwise, path does not exist so we'll return 0...but we'll first
+	 * determine some info about its parent directory so we can avoid
+	 * lstat calls for future cache entries.
+	 */
+	newdir = strrchr(path, '/');
+	if (!newdir)
+		return 0; /* Didn't find a parent dir; just return 0 now. */
+
+	/*
+	 * If path starts with directory (which we already lstat'ed and found),
+	 * then no need to lstat parent directory again.
+	 */
+	if (*dir_found && *dirname && memcmp(path, *dirname, *dir_len))
+		return 0;
+
+	/* Free previous dirname, and cache path's dirname */
+	*dirname = path;
+	*dir_len = newdir - path + 1;
+
+	tmp = xstrndup(path, *dir_len);
+	*dir_found = !lstat(tmp, &st);
+	free(tmp);
+
+	return 0;
+}
+
+void clear_skip_worktree_from_present_files(struct index_state *istate)
+{
+	const char *last_dirname = NULL;
+	size_t dir_len = 0;
+	int dir_found = 1;
+
+	int i;
+
+	if (!core_apply_sparse_checkout ||
+	    sparse_expect_files_outside_of_patterns)
+		return;
+
+restart:
+	for (i = 0; i < istate->cache_nr; i++) {
+		struct cache_entry *ce = istate->cache[i];
+
+		if (ce_skip_worktree(ce) &&
+		    path_found(ce->name, &last_dirname, &dir_len, &dir_found)) {
+			if (S_ISSPARSEDIR(ce->ce_mode)) {
+				ensure_full_index(istate);
+				goto restart;
+			}
+			ce->ce_flags &= ~CE_SKIP_WORKTREE;
+		}
+	}
 }
 
 /*

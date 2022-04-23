@@ -378,6 +378,8 @@ struct cache_ref_iterator {
 	 * on from there.)
 	 */
 	struct cache_ref_iterator_level *levels;
+
+	struct repository *repo;
 };
 
 static int cache_ref_iterator_advance(struct ref_iterator *ref_iterator)
@@ -434,6 +436,11 @@ static int cache_ref_iterator_advance(struct ref_iterator *ref_iterator)
 static int cache_ref_iterator_peel(struct ref_iterator *ref_iterator,
 				   struct object_id *peeled)
 {
+	struct cache_ref_iterator *iter =
+		(struct cache_ref_iterator *)ref_iterator;
+
+	if (iter->repo != the_repository)
+		BUG("peeling for non-the_repository is not supported");
 	return peel_object(ref_iterator->oid, peeled) ? -1 : 0;
 }
 
@@ -449,13 +456,14 @@ static int cache_ref_iterator_abort(struct ref_iterator *ref_iterator)
 }
 
 static struct ref_iterator_vtable cache_ref_iterator_vtable = {
-	cache_ref_iterator_advance,
-	cache_ref_iterator_peel,
-	cache_ref_iterator_abort
+	.advance = cache_ref_iterator_advance,
+	.peel = cache_ref_iterator_peel,
+	.abort = cache_ref_iterator_abort
 };
 
 struct ref_iterator *cache_ref_iterator_begin(struct ref_cache *cache,
 					      const char *prefix,
+					      struct repository *repo,
 					      int prime_dir)
 {
 	struct ref_dir *dir;
@@ -489,6 +497,8 @@ struct ref_iterator *cache_ref_iterator_begin(struct ref_cache *cache,
 	} else {
 		level->prefix_state = PREFIX_CONTAINS_DIR;
 	}
+
+	iter->repo = repo;
 
 	return ref_iterator;
 }

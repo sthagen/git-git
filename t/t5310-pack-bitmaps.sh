@@ -1,11 +1,8 @@
 #!/bin/sh
 
 test_description='exercise basic bitmap functionality'
-GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=master
-export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
 
 . ./test-lib.sh
-. "$TEST_DIRECTORY"/lib-bundle.sh
 . "$TEST_DIRECTORY"/lib-bitmap.sh
 
 # t5310 deals only with single-pack bitmaps, so don't write MIDX bitmaps in
@@ -36,7 +33,7 @@ test_expect_success 'setup writing bitmaps during repack' '
 '
 
 test_expect_success 'full repack creates bitmaps' '
-	GIT_TRACE2_EVENT_NESTING=4 GIT_TRACE2_EVENT="$(pwd)/trace" \
+	GIT_TRACE2_EVENT="$(pwd)/trace" \
 		git repack -ad &&
 	ls .git/objects/pack/ | grep bitmap >output &&
 	test_line_count = 1 output &&
@@ -231,7 +228,7 @@ test_expect_success 'pack reuse respects --honor-pack-keep' '
 	test_when_finished "rm -f .git/objects/pack/*.keep" &&
 	for i in .git/objects/pack/*.pack
 	do
-		>${i%.pack}.keep
+		>${i%.pack}.keep || return 1
 	done &&
 	reusable_pack --honor-pack-keep >empty.pack &&
 	git index-pack empty.pack &&
@@ -397,6 +394,34 @@ test_expect_success 'pack.preferBitmapTips' '
 		comm -13 bitmaps commits >after &&
 
 		! test_cmp before after
+	)
+'
+
+test_expect_success 'complains about multiple pack bitmaps' '
+	rm -fr repo &&
+	git init repo &&
+	test_when_finished "rm -fr repo" &&
+	(
+		cd repo &&
+
+		test_commit base &&
+
+		git repack -adb &&
+		bitmap="$(ls .git/objects/pack/pack-*.bitmap)" &&
+		mv "$bitmap" "$bitmap.bak" &&
+
+		test_commit other &&
+		git repack -ab &&
+
+		mv "$bitmap.bak" "$bitmap" &&
+
+		find .git/objects/pack -type f -name "*.pack" >packs &&
+		find .git/objects/pack -type f -name "*.bitmap" >bitmaps &&
+		test_line_count = 2 packs &&
+		test_line_count = 2 bitmaps &&
+
+		git rev-list --use-bitmap-index HEAD 2>err &&
+		grep "ignoring extra bitmap file" err
 	)
 '
 

@@ -990,7 +990,7 @@ void http_init(struct remote *remote, const char *url, int proactive_auth)
 	char *low_speed_limit;
 	char *low_speed_time;
 	char *normalized_url;
-	struct urlmatch_config config = { STRING_LIST_INIT_DUP };
+	struct urlmatch_config config = URLMATCH_CONFIG_INIT;
 
 	config.section = "http";
 	config.key = NULL;
@@ -2126,8 +2126,9 @@ int finish_http_pack_request(struct http_pack_request *preq)
 
 	ip.git_cmd = 1;
 	ip.in = tmpfile_fd;
-	ip.argv = preq->index_pack_args ? preq->index_pack_args
-					: default_index_pack_args;
+	strvec_pushv(&ip.args, preq->index_pack_args ?
+		     preq->index_pack_args :
+		     default_index_pack_args);
 
 	if (preq->preserve_index_pack_stdout)
 		ip.out = 0;

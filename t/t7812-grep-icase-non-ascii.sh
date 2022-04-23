@@ -11,9 +11,19 @@ test_expect_success GETTEXT_LOCALE 'setup' '
 	export LC_ALL
 '
 
-test_have_prereq GETTEXT_LOCALE &&
-test-tool regex "HALLÓ" "Halló" ICASE &&
-test_set_prereq REGEX_LOCALE
+test_expect_success GETTEXT_LOCALE 'setup REGEX_LOCALE prerequisite' '
+	# This "test-tool" invocation is identical...
+	if test-tool regex "HALLÓ" "Halló" ICASE
+	then
+		test_set_prereq REGEX_LOCALE
+	else
+
+		# ... to this one, but this way "test_must_fail" will
+		# tell a segfault or abort() from the regexec() test
+		# itself
+		test_must_fail test-tool regex "HALLÓ" "Halló" ICASE
+	fi
+'
 
 test_expect_success REGEX_LOCALE 'grep literal string, no -F' '
 	git grep -i "TILRAUN: Halló Heimur!" &&
@@ -121,6 +131,12 @@ test_expect_success GETTEXT_LOCALE,LIBPCRE2,PCRE2_MATCH_INVALID_UTF 'PCRE v2: gr
 	test_cmp invalid-0xe5 actual &&
 	git grep -hi "(*NO_JIT)aÆ" invalid-0xe5 >actual &&
 	test_cmp invalid-0xe5 actual
+'
+
+test_expect_success GETTEXT_LOCALE,LIBPCRE2 'PCRE v2: grep non-literal ASCII from UTF-8' '
+	git grep --perl-regexp -h -o -e ll. file >actual &&
+	echo "lló" >expected &&
+	test_cmp expected actual
 '
 
 test_done

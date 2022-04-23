@@ -122,18 +122,26 @@ again.  Equivalent forms are `--min-parents=0` (any commit has 0 or more
 parents) and `--max-parents=-1` (negative numbers denote no upper limit).
 
 --first-parent::
-	Follow only the first parent commit upon seeing a merge
-	commit.  This option can give a better overview when
-	viewing the evolution of a particular topic branch,
-	because merges into a topic branch tend to be only about
-	adjusting to updated upstream from time to time, and
-	this option allows you to ignore the individual commits
-	brought in to your history by such a merge.
+	When finding commits to include, follow only the first
+	parent commit upon seeing a merge commit.  This option
+	can give a better overview when viewing the evolution of
+	a particular topic branch, because merges into a topic
+	branch tend to be only about adjusting to updated upstream
+	from time to time, and this option allows you to ignore
+	the individual commits brought in to your history by such
+	a merge.
 ifdef::git-log[]
 +
 This option also changes default diff format for merge commits
 to `first-parent`, see `--diff-merges=first-parent` for details.
 endif::git-log[]
+
+--exclude-first-parent-only::
+	When finding commits to exclude (with a '{caret}'), follow only
+	the first parent commit upon seeing a merge commit.
+	This can be used to find the set of changes in a topic branch
+	from the point where it diverged from the remote branch, given
+	that arbitrary merges can be valid topic branch changes.
 
 --not::
 	Reverses the meaning of the '{caret}' prefix (or lack thereof)
@@ -968,11 +976,6 @@ list of the missing objects.  Object IDs are prefixed with a ``?'' character.
 	objects.
 endif::git-rev-list[]
 
---unsorted-input::
-	Show commits in the order they were given on the command line instead
-	of sorting them in reverse chronological order by commit time. Cannot
-	be combined with `--no-walk` or `--no-walk=sorted`.
-
 --no-walk[=(sorted|unsorted)]::
 	Only show the given commits, but do not traverse their ancestors.
 	This has no effect if a range is specified. If the argument
@@ -980,8 +983,7 @@ endif::git-rev-list[]
 	given on the command line. Otherwise (if `sorted` or no argument
 	was given), the commits are shown in reverse chronological order
 	by commit time.
-	Cannot be combined with `--graph`. Cannot be combined with
-	`--unsorted-input` if `sorted` or no argument was given.
+	Cannot be combined with `--graph`.
 
 --do-walk::
 	Overrides a previous `--no-walk`.
@@ -1053,7 +1055,7 @@ omitted.
 has no effect.
 
 `--date=format:...` feeds the format `...` to your system `strftime`,
-except for %z and %Z, which are handled internally.
+except for %s, %z, and %Z, which are handled internally.
 Use `--date=format:%c` to show the date in your system locale's
 preferred format.  See the `strftime` manual for a complete list of
 format placeholders. When using `-local`, the correct syntax is

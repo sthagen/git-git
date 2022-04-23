@@ -72,11 +72,13 @@
 /git-format-patch
 /git-fsck
 /git-fsck-objects
+/git-fsmonitor--daemon
 /git-gc
 /git-get-tar-commit-id
 /git-grep
 /git-hash-object
 /git-help
+/git-hook
 /git-http-backend
 /git-http-fetch
 /git-http-push
@@ -125,7 +127,6 @@
 /git-range-diff
 /git-read-tree
 /git-rebase
-/git-rebase--preserve-merges
 /git-receive-pack
 /git-reflog
 /git-remote
@@ -190,6 +191,7 @@
 /gitweb/static/gitweb.min.*
 /config-list.h
 /command-list.h
+/hook-list.h
 *.tar.gz
 *.dsc
 *.deb
@@ -224,6 +226,7 @@
 *.lib
 *.res
 *.sln
+*.sp
 *.suo
 *.ncb
 *.vcproj

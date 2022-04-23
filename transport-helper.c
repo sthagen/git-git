@@ -715,6 +715,9 @@ static int fetch_refs(struct transport *transport,
 	if (data->transport_options.update_shallow)
 		set_helper_option(transport, "update-shallow", "true");
 
+	if (data->transport_options.refetch)
+		set_helper_option(transport, "refetch", "true");
+
 	if (data->transport_options.filter_options.choice) {
 		const char *spec = expand_list_objects_filter_spec(
 			&data->transport_options.filter_options);
@@ -843,6 +846,10 @@ static int push_update_ref_status(struct strbuf *buf,
 		}
 		else if (!strcmp(msg, "forced update")) {
 			forced = 1;
+			FREE_AND_NULL(msg);
+		}
+		else if (!strcmp(msg, "expecting report")) {
+			status = REF_STATUS_EXPECTING_REPORT;
 			FREE_AND_NULL(msg);
 		}
 	}

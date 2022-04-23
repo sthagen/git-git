@@ -44,22 +44,35 @@
 struct child_process {
 
 	/**
-	 * The .argv member is set up as an array of string pointers (NULL
-	 * terminated), of which .argv[0] is the program name to run (usually
-	 * without a path). If the command to run is a git command, set argv[0] to
-	 * the command name without the 'git-' prefix and set .git_cmd = 1.
+	 * The .args is a `struct strvec', use that API to manipulate
+	 * it, e.g. strvec_pushv() to add an existing "const char **"
+	 * vector.
 	 *
-	 * Note that the ownership of the memory pointed to by .argv stays with the
-	 * caller, but it should survive until `finish_command` completes. If the
-	 * .argv member is NULL, `start_command` will point it at the .args
-	 * `strvec` (so you may use one or the other, but you must use exactly
-	 * one). The memory in .args will be cleaned up automatically during
+	 * If the command to run is a git command, set the first
+	 * element in the strvec to the command name without the
+	 * 'git-' prefix and set .git_cmd = 1.
+	 *
+	 * The memory in .args will be cleaned up automatically during
 	 * `finish_command` (or during `start_command` when it is unsuccessful).
-	 *
 	 */
-	const char **argv;
-
 	struct strvec args;
+
+	/**
+	 * Like .args the .env_array is a `struct strvec'.
+	 *
+	 * To modify the environment of the sub-process, specify an array of
+	 * environment settings. Each string in the array manipulates the
+	 * environment.
+	 *
+	 * - If the string is of the form "VAR=value", i.e. it contains '='
+	 *   the variable is added to the child process's environment.
+	 *
+	 * - If the string does not contain '=', it names an environment
+	 *   variable that will be removed from the child process's environment.
+	 *
+	 * The memory in .env_array will be cleaned up automatically during
+	 * `finish_command` (or during `start_command` when it is unsuccessful).
+	 */
 	struct strvec env_array;
 	pid_t pid;
 
@@ -95,23 +108,6 @@ struct child_process {
 	 * specify it in the .dir member.
 	 */
 	const char *dir;
-
-	/**
-	 * To modify the environment of the sub-process, specify an array of
-	 * string pointers (NULL terminated) in .env:
-	 *
-	 * - If the string is of the form "VAR=value", i.e. it contains '='
-	 *   the variable is added to the child process's environment.
-	 *
-	 * - If the string does not contain '=', it names an environment
-	 *   variable that will be removed from the child process's environment.
-	 *
-	 * If the .env member is NULL, `start_command` will point it at the
-	 * .env_array `strvec` (so you may use one or the other, but not both).
-	 * The memory in .env_array will be cleaned up automatically during
-	 * `finish_command` (or during `start_command` when it is unsuccessful).
-	 */
-	const char *const *env;
 
 	unsigned no_stdin:1;
 	unsigned no_stdout:1;
@@ -223,30 +219,6 @@ int finish_command_in_signal(struct child_process *);
  * to a `struct child_process` that specifies the details.
  */
 int run_command(struct child_process *);
-
-/*
- * Returns the path to the hook file, or NULL if the hook is missing
- * or disabled. Note that this points to static storage that will be
- * overwritten by further calls to find_hook and run_hook_*.
- */
-const char *find_hook(const char *name);
-
-/**
- * Run a hook.
- * The first argument is a pathname to an index file, or NULL
- * if the hook uses the default index file or no index is needed.
- * The second argument is the name of the hook.
- * The further arguments correspond to the hook arguments.
- * The last argument has to be NULL to terminate the arguments list.
- * If the hook does not exist or is not executable, the return
- * value will be zero.
- * If it is executable, the hook will be executed and the exit
- * status of the hook is returned.
- * On execution, .stdout_to_stderr and .no_stdin will be set.
- */
-LAST_ARG_MUST_BE_NULL
-int run_hook_le(const char *const *env, const char *name, ...);
-int run_hook_ve(const char *const *env, const char *name, va_list args);
 
 /*
  * Trigger an auto-gc
@@ -516,5 +488,62 @@ int run_processes_parallel_tr2(int n, get_next_task_fn, start_failure_fn,
  * cache.h for more information.
  */
 void prepare_other_repo_env(struct strvec *env_array, const char *new_git_dir);
+
+/**
+ * Possible return values for start_bg_command().
+ */
+enum start_bg_result {
+	/* child process is "ready" */
+	SBGR_READY = 0,
+
+	/* child process could not be started */
+	SBGR_ERROR,
+
+	/* callback error when testing for "ready" */
+	SBGR_CB_ERROR,
+
+	/* timeout expired waiting for child to become "ready" */
+	SBGR_TIMEOUT,
+
+	/* child process exited or was signalled before becomming "ready" */
+	SBGR_DIED,
+};
+
+/**
+ * Callback used by start_bg_command() to ask whether the
+ * child process is ready or needs more time to become "ready".
+ *
+ * The callback will receive the cmd and cb_data arguments given to
+ * start_bg_command().
+ *
+ * Returns 1 is child needs more time (subject to the requested timeout).
+ * Returns 0 if child is "ready".
+ * Returns -1 on any error and cause start_bg_command() to also error out.
+ */
+typedef int(start_bg_wait_cb)(const struct child_process *cmd, void *cb_data);
+
+/**
+ * Start a command in the background.  Wait long enough for the child
+ * to become "ready" (as defined by the provided callback).  Capture
+ * immediate errors (like failure to start) and any immediate exit
+ * status (such as a shutdown/signal before the child became "ready")
+ * and return this like start_command().
+ *
+ * We run a custom wait loop using the provided callback to wait for
+ * the child to start and become "ready".  This is limited by the given
+ * timeout value.
+ *
+ * If the child does successfully start and become "ready", we orphan
+ * it into the background.
+ *
+ * The caller must not call finish_command().
+ *
+ * The opaque cb_data argument will be forwarded to the callback for
+ * any instance data that it might require.  This may be NULL.
+ */
+enum start_bg_result start_bg_command(struct child_process *cmd,
+				      start_bg_wait_cb *wait_cb,
+				      void *cb_data,
+				      unsigned int timeout_sec);
 
 #endif

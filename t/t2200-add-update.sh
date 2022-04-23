@@ -40,20 +40,28 @@ test_expect_success update '
 '
 
 test_expect_success 'update noticed a removal' '
-	test "$(git ls-files dir1/sub1)" = ""
+	git ls-files dir1/sub1 >out &&
+	test_must_be_empty out
 '
 
 test_expect_success 'update touched correct path' '
-	test "$(git diff-files --name-status dir2/sub3)" = ""
+	git diff-files --name-status dir2/sub3 >out &&
+	test_must_be_empty out
 '
 
 test_expect_success 'update did not touch other tracked files' '
-	test "$(git diff-files --name-status check)" = "M	check" &&
-	test "$(git diff-files --name-status top)" = "M	top"
+	echo "M	check" >expect &&
+	git diff-files --name-status check >actual &&
+	test_cmp expect actual &&
+
+	echo "M	top" >expect &&
+	git diff-files --name-status top >actual &&
+	test_cmp expect actual
 '
 
 test_expect_success 'update did not touch untracked files' '
-	test "$(git ls-files dir2/other)" = ""
+	git ls-files dir2/other >out &&
+	test_must_be_empty out
 '
 
 test_expect_success 'cache tree has not been corrupted' '
@@ -75,9 +83,8 @@ test_expect_success 'update from a subdirectory' '
 '
 
 test_expect_success 'change gets noticed' '
-
-	test "$(git diff-files --name-status dir1)" = ""
-
+	git diff-files --name-status dir1 >out &&
+	test_must_be_empty out
 '
 
 test_expect_success 'non-qualified update in subdir updates from the root' '
@@ -102,7 +109,8 @@ test_expect_success 'replace a file with a symlink' '
 test_expect_success 'add everything changed' '
 
 	git add -u &&
-	test -z "$(git diff-files)"
+	git diff-files >out &&
+	test_must_be_empty out
 
 '
 
@@ -110,7 +118,8 @@ test_expect_success 'touch and then add -u' '
 
 	touch check &&
 	git add -u &&
-	test -z "$(git diff-files)"
+	git diff-files >out &&
+	test_must_be_empty out
 
 '
 
@@ -118,7 +127,8 @@ test_expect_success 'touch and then add explicitly' '
 
 	touch check &&
 	git add check &&
-	test -z "$(git diff-files)"
+	git diff-files >out &&
+	test_must_be_empty out
 
 '
 
@@ -129,12 +139,15 @@ test_expect_success 'add -n -u should not add but just report' '
 		echo "remove '\''top'\''"
 	) >expect &&
 	before=$(git ls-files -s check top) &&
+	git count-objects -v >objects_before &&
 	echo changed >>check &&
 	rm -f top &&
 	git add -n -u >actual &&
 	after=$(git ls-files -s check top) &&
+	git count-objects -v >objects_after &&
 
 	test "$before" = "$after" &&
+	test_cmp objects_before objects_after &&
 	test_cmp expect actual
 
 '
@@ -147,13 +160,13 @@ test_expect_success 'add -u resolves unmerged paths' '
 	{
 		for path in path1 path2
 		do
-			echo "100644 $one 1	$path"
-			echo "100644 $two 2	$path"
-			echo "100644 $three 3	$path"
-		done
-		echo "100644 $one 1	path3"
-		echo "100644 $one 1	path4"
-		echo "100644 $one 3	path5"
+			echo "100644 $one 1	$path" &&
+			echo "100644 $two 2	$path" &&
+			echo "100644 $three 3	$path" || return 1
+		done &&
+		echo "100644 $one 1	path3" &&
+		echo "100644 $one 1	path4" &&
+		echo "100644 $one 3	path5" &&
 		echo "100644 $one 3	path6"
 	} |
 	git update-index --index-info &&
@@ -170,8 +183,8 @@ test_expect_success 'add -u resolves unmerged paths' '
 	git add -u &&
 	git ls-files -s path1 path2 path3 path4 path5 path6 >actual &&
 	{
-		echo "100644 $three 0	path1"
-		echo "100644 $two 0	path3"
+		echo "100644 $three 0	path1" &&
+		echo "100644 $two 0	path3" &&
 		echo "100644 $two 0	path5"
 	} >expect &&
 	test_cmp expect actual

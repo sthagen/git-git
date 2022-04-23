@@ -405,8 +405,8 @@ every 'git commit-graph write', as if the `--changed-paths` option was
 passed in.
 
 GIT_TEST_FSMONITOR=$PWD/t7519/fsmonitor-all exercises the fsmonitor
-code path for utilizing a file system monitor to speed up detecting
-new or changed files.
+code paths for utilizing a (hook based) file system monitor to speed up
+detecting new or changed files.
 
 GIT_TEST_INDEX_VERSION=<n> exercises the index read/write code path
 for the index version specified.  Can be set to any valid version
@@ -463,11 +463,14 @@ GIT_TEST_FATAL_REGISTER_SUBMODULE_ODB=<boolean>, when true, makes
 registering submodule ODBs as alternates a fatal action. Support for
 this environment variable can be removed once the migration to
 explicitly providing repositories when accessing submodule objects is
-complete (in which case we might want to replace this with a trace2
-call so that users can make it visible if accessing submodule objects
-without an explicit repository still happens) or needs to be abandoned
-for whatever reason (in which case the migrated codepaths still retain
-their performance benefits).
+complete or needs to be abandoned for whatever reason (in which case the
+migrated codepaths still retain their performance benefits).
+
+GIT_TEST_REQUIRE_PREREQ=<list> allows specifying a space separated list of
+prereqs that are required to succeed. If a prereq in this list is triggered by
+a test and then fails then the whole test run will abort. This can help to make
+sure the expected tests are executed and not silently skipped when their
+dependency breaks or is simply not present in a new environment.
 
 Naming Tests
 ------------

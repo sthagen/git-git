@@ -5,6 +5,7 @@
 #include "string-list.h"
 #include "chdir-notify.h"
 #include "promisor-remote.h"
+#include "quote.h"
 
 static int inside_git_dir = -1;
 static int inside_work_tree = -1;
@@ -12,6 +13,7 @@ static int work_tree_config_is_bogus;
 
 static struct startup_info the_startup_info;
 struct startup_info *startup_info = &the_startup_info;
+const char *tmp_original_cwd;
 
 /*
  * The input parameter must contain an absolute path, and it must already be
@@ -432,6 +434,69 @@ void setup_work_tree(void)
 	initialized = 1;
 }
 
+static void setup_original_cwd(void)
+{
+	struct strbuf tmp = STRBUF_INIT;
+	const char *worktree = NULL;
+	int offset = -1;
+
+	if (!tmp_original_cwd)
+		return;
+
+	/*
+	 * startup_info->original_cwd points to the current working
+	 * directory we inherited from our parent process, which is a
+	 * directory we want to avoid removing.
+	 *
+	 * For convience, we would like to have the path relative to the
+	 * worktree instead of an absolute path.
+	 *
+	 * Yes, startup_info->original_cwd is usually the same as 'prefix',
+	 * but differs in two ways:
+	 *   - prefix has a trailing '/'
+	 *   - if the user passes '-C' to git, that modifies the prefix but
+	 *     not startup_info->original_cwd.
+	 */
+
+	/* Normalize the directory */
+	strbuf_realpath(&tmp, tmp_original_cwd, 1);
+	free((char*)tmp_original_cwd);
+	tmp_original_cwd = NULL;
+	startup_info->original_cwd = strbuf_detach(&tmp, NULL);
+
+	/*
+	 * Get our worktree; we only protect the current working directory
+	 * if it's in the worktree.
+	 */
+	worktree = get_git_work_tree();
+	if (!worktree)
+		goto no_prevention_needed;
+
+	offset = dir_inside_of(startup_info->original_cwd, worktree);
+	if (offset >= 0) {
+		/*
+		 * If startup_info->original_cwd == worktree, that is already
+		 * protected and we don't need original_cwd as a secondary
+		 * protection measure.
+		 */
+		if (!*(startup_info->original_cwd + offset))
+			goto no_prevention_needed;
+
+		/*
+		 * original_cwd was inside worktree; precompose it just as
+		 * we do prefix so that built up paths will match
+		 */
+		startup_info->original_cwd = \
+			precompose_string_if_needed(startup_info->original_cwd
+						    + offset);
+		return;
+	}
+
+no_prevention_needed:
+	free((char*)startup_info->original_cwd);
+	startup_info->original_cwd = NULL;
+}
+
 static int read_worktree_config(const char *var, const char *value, void *vdata)
 {
 	struct repository_format *data = vdata;
@@ -495,7 +560,8 @@ static enum extension_result handle_extension(const char *var,
 			return config_error_nonbool(var);
 		format = hash_algo_by_name(value);
 		if (format == GIT_HASH_UNKNOWN)
-			return error("invalid value for 'extensions.objectformat'");
+			return error(_("invalid value for '%s': '%s'"),
+				     "extensions.objectformat", value);
 		data->hash_algo = format;
 		return EXTENSION_OK;
 	}
@@ -1025,6 +1091,48 @@ static int canonicalize_ceiling_entry(struct string_list_item *item,
 	}
 }
 
+struct safe_directory_data {
+	const char *path;
+	int is_safe;
+};
+
+static int safe_directory_cb(const char *key, const char *value, void *d)
+{
+	struct safe_directory_data *data = d;
+
+	if (strcmp(key, "safe.directory"))
+		return 0;
+
+	if (!value || !*value) {
+		data->is_safe = 0;
+	} else if (!strcmp(value, "*")) {
+		data->is_safe = 1;
+	} else {
+		const char *interpolated = NULL;
+
+		if (!git_config_pathname(&interpolated, key, value) &&
+		    !fspathcmp(data->path, interpolated ? interpolated : value))
+			data->is_safe = 1;
+
+		free((char *)interpolated);
+	}
+
+	return 0;
+}
+
+static int ensure_valid_ownership(const char *path)
+{
+	struct safe_directory_data data = { .path = path };
+
+	if (!git_env_bool("GIT_TEST_ASSUME_DIFFERENT_OWNER", 0) &&
+	    is_path_owned_by_current_user(path))
+		return 1;
+
+	read_very_early_config(safe_directory_cb, &data);
+
+	return data.is_safe;
+}
+
 enum discovery_result {
 	GIT_DIR_NONE = 0,
 	GIT_DIR_EXPLICIT,
@@ -1033,7 +1141,8 @@ enum discovery_result {
 	/* these are errors */
 	GIT_DIR_HIT_CEILING = -1,
 	GIT_DIR_HIT_MOUNT_POINT = -2,
-	GIT_DIR_INVALID_GITFILE = -3
+	GIT_DIR_INVALID_GITFILE = -3,
+	GIT_DIR_INVALID_OWNERSHIP = -4
 };
 
 /*
@@ -1123,11 +1232,15 @@ static enum discovery_result setup_git_directory_gently_1(struct strbuf *dir,
 		}
 		strbuf_setlen(dir, offset);
 		if (gitdirenv) {
+			if (!ensure_valid_ownership(dir->buf))
+				return GIT_DIR_INVALID_OWNERSHIP;
 			strbuf_addstr(gitdir, gitdirenv);
 			return GIT_DIR_DISCOVERED;
 		}
 
 		if (is_git_directory(dir->buf)) {
+			if (!ensure_valid_ownership(dir->buf))
+				return GIT_DIR_INVALID_OWNERSHIP;
 			strbuf_addstr(gitdir, ".");
 			return GIT_DIR_BARE;
 		}
@@ -1259,6 +1372,19 @@ const char *setup_git_directory_gently(int *nongit_ok)
 			    dir.buf);
 		*nongit_ok = 1;
 		break;
+	case GIT_DIR_INVALID_OWNERSHIP:
+		if (!nongit_ok) {
+			struct strbuf quoted = STRBUF_INIT;
+
+			sq_quote_buf_pretty(&quoted, dir.buf);
+			die(_("unsafe repository ('%s' is owned by someone else)\n"
+			      "To add an exception for this directory, call:\n"
+			      "\n"
+			      "\tgit config --global --add safe.directory %s"),
+			    dir.buf, quoted.buf);
+		}
+		*nongit_ok = 1;
+		break;
 	case GIT_DIR_NONE:
 		/*
 		 * As a safeguard against setup_git_directory_gently_1 returning
@@ -1330,6 +1456,7 @@ const char *setup_git_directory_gently(int *nongit_ok)
 		setenv(GIT_PREFIX_ENVIRONMENT, "", 1);
 	}
 
+	setup_original_cwd();
 
 	strbuf_release(&dir);
 	strbuf_release(&gitdir);

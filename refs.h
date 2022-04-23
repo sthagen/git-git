@@ -68,6 +68,7 @@ const char *refs_resolve_ref_unsafe(struct ref_store *refs,
 				    int resolve_flags,
 				    struct object_id *oid,
 				    int *flags);
+
 const char *resolve_ref_unsafe(const char *refname, int resolve_flags,
 			       struct object_id *oid, int *flags);
 
@@ -77,11 +78,12 @@ char *refs_resolve_refdup(struct ref_store *refs,
 char *resolve_refdup(const char *refname, int resolve_flags,
 		     struct object_id *oid, int *flags);
 
-int refs_read_ref_full(struct ref_store *refs, const char *refname,
-		       int resolve_flags, struct object_id *oid, int *flags);
 int read_ref_full(const char *refname, int resolve_flags,
 		  struct object_id *oid, int *flags);
 int read_ref(const char *refname, struct object_id *oid);
+
+int refs_read_symbolic_ref(struct ref_store *ref_store, const char *refname,
+			   struct strbuf *referent);
 
 /*
  * Return 0 if a reference named refname could be created without
@@ -413,8 +415,8 @@ int refs_pack_refs(struct ref_store *refs, unsigned int flags);
  * Setup reflog before using. Fill in err and return -1 on failure.
  */
 int refs_create_reflog(struct ref_store *refs, const char *refname,
-		       int force_create, struct strbuf *err);
-int safe_create_reflog(const char *refname, int force_create, struct strbuf *err);
+		       struct strbuf *err);
+int safe_create_reflog(const char *refname, struct strbuf *err);
 
 /** Reads log for the value of ref during at_time. **/
 int read_ref_at(struct ref_store *refs,
@@ -459,7 +461,29 @@ int delete_reflog(const char *refname);
 
 /*
  * Callback to process a reflog entry found by the iteration functions (see
- * below)
+ * below).
+ *
+ * The committer parameter is a single string, in the form
+ * "$GIT_COMMITTER_NAME <$GIT_COMMITTER_EMAIL>" (without double quotes).
+ *
+ * The timestamp parameter gives the time when entry was created as the number
+ * of seconds since the UNIX epoch.
+ *
+ * The tz parameter gives the timezone offset for the user who created
+ * the reflog entry, and its value gives a positive or negative offset
+ * from UTC.  Its absolute value is formed by multiplying the hour
+ * part by 100 and adding the minute part.  For example, 1 hour ahead
+ * of UTC, CET == "+0100", is represented as positive one hundred (not
+ * postiive sixty).
+ *
+ * The msg parameter is a single complete line; a reflog message given
+ * to refs_delete_ref, refs_update_ref, etc. is returned to the
+ * callback normalized---each run of whitespaces are squashed into a
+ * single whitespace, trailing whitespace, if exists, is trimmed, and
+ * then a single LF is added at the end.
+ *
+ * The cb_data is a caller-supplied pointer given to the iterator
+ * functions.
  */
 typedef int each_reflog_ent_fn(
 		struct object_id *old_oid, struct object_id *new_oid,
@@ -612,11 +636,23 @@ struct ref_transaction *ref_transaction_begin(struct strbuf *err);
 #define REF_FORCE_CREATE_REFLOG (1 << 1)
 
 /*
+ * Blindly write an object_id. This is useful for testing data corruption
+ * scenarios.
+ */
+#define REF_SKIP_OID_VERIFICATION (1 << 10)
+
+/*
+ * Skip verifying refname. This is useful for testing data corruption scenarios.
+ */
+#define REF_SKIP_REFNAME_VERIFICATION (1 << 11)
+
+/*
  * Bitmask of all of the flags that are allowed to be passed in to
  * ref_transaction_update() and friends:
  */
-#define REF_TRANSACTION_UPDATE_ALLOWED_FLAGS \
-	(REF_NO_DEREF | REF_FORCE_CREATE_REFLOG)
+#define REF_TRANSACTION_UPDATE_ALLOWED_FLAGS                                  \
+	(REF_NO_DEREF | REF_FORCE_CREATE_REFLOG | REF_SKIP_OID_VERIFICATION | \
+	 REF_SKIP_REFNAME_VERIFICATION)
 
 /*
  * Add a reference update to transaction. `new_oid` is the value that
@@ -738,6 +774,20 @@ int initial_ref_transaction_commit(struct ref_transaction *transaction,
 				   struct strbuf *err);
 
 /*
+ * Execute the given callback function for each of the reference updates which
+ * have been queued in the given transaction. `old_oid` and `new_oid` may be
+ * `NULL` pointers depending on whether the update has these object IDs set or
+ * not.
+ */
+typedef void ref_transaction_for_each_queued_update_fn(const char *refname,
+						       const struct object_id *old_oid,
+						       const struct object_id *new_oid,
+						       void *cb_data);
+void ref_transaction_for_each_queued_update(struct ref_transaction *transaction,
+					    ref_transaction_for_each_queued_update_fn cb,
+					    void *cb_data);
+
+/*
  * Free `*transaction` and all associated data.
  */
 void ref_transaction_free(struct ref_transaction *transaction);
@@ -782,8 +832,7 @@ enum ref_type ref_type(const char *refname);
 enum expire_reflog_flags {
 	EXPIRE_REFLOGS_DRY_RUN = 1 << 0,
 	EXPIRE_REFLOGS_UPDATE_REF = 1 << 1,
-	EXPIRE_REFLOGS_VERBOSE = 1 << 2,
-	EXPIRE_REFLOGS_REWRITE = 1 << 3
+	EXPIRE_REFLOGS_REWRITE = 1 << 2,
 };
 
 /*

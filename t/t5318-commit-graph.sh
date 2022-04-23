@@ -29,12 +29,7 @@ test_expect_success 'setup full repo' '
 	cd "$TRASH_DIRECTORY/full" &&
 	git init &&
 	git config core.commitGraph true &&
-	objdir=".git/objects" &&
-
-	test_oid_cache <<-EOF
-	oid_version sha1:1
-	oid_version sha256:2
-	EOF
+	objdir=".git/objects"
 '
 
 test_expect_success POSIXPERM 'tweak umask for modebit tests' '
@@ -64,50 +59,14 @@ test_expect_success 'create commits and repack' '
 	for i in $(test_seq 3)
 	do
 		test_commit $i &&
-		git branch commits/$i
+		git branch commits/$i || return 1
 	done &&
 	git repack
 '
 
-graph_git_two_modes() {
-	git -c core.commitGraph=true $1 >output
-	git -c core.commitGraph=false $1 >expect
-	test_cmp expect output
-}
-
-graph_git_behavior() {
-	MSG=$1
-	DIR=$2
-	BRANCH=$3
-	COMPARE=$4
-	test_expect_success "check normal git operations: $MSG" '
-		cd "$TRASH_DIRECTORY/$DIR" &&
-		graph_git_two_modes "log --oneline $BRANCH" &&
-		graph_git_two_modes "log --topo-order $BRANCH" &&
-		graph_git_two_modes "log --graph $COMPARE..$BRANCH" &&
-		graph_git_two_modes "branch -vv" &&
-		graph_git_two_modes "merge-base -a $BRANCH $COMPARE"
-	'
-}
+. "$TEST_DIRECTORY"/lib-commit-graph.sh
 
 graph_git_behavior 'no graph' full commits/3 commits/1
-
-graph_read_expect() {
-	OPTIONAL=""
-	NUM_CHUNKS=3
-	if test ! -z "$2"
-	then
-		OPTIONAL=" $2"
-		NUM_CHUNKS=$((3 + $(echo "$2" | wc -w)))
-	fi
-	cat >expect <<- EOF
-	header: 43475048 1 $(test_oid oid_version) $NUM_CHUNKS 0
-	num_commits: $1
-	chunks: oid_fanout oid_lookup commit_metadata$OPTIONAL
-	EOF
-	test-tool read-graph >output &&
-	test_cmp expect output
-}
 
 test_expect_success 'exit with correct error on bad input to --stdin-commits' '
 	cd "$TRASH_DIRECTORY/full" &&
@@ -147,13 +106,13 @@ test_expect_success 'Add more commits' '
 	for i in $(test_seq 4 5)
 	do
 		test_commit $i &&
-		git branch commits/$i
+		git branch commits/$i || return 1
 	done &&
 	git reset --hard commits/2 &&
 	for i in $(test_seq 6 7)
 	do
 		test_commit $i &&
-		git branch commits/$i
+		git branch commits/$i || return 1
 	done &&
 	git reset --hard commits/2 &&
 	git merge commits/4 &&
@@ -385,6 +344,7 @@ test_expect_success 'replace-objects invalidates commit-graph' '
 		git commit-graph write --reachable &&
 		test_path_is_file .git/objects/info/commit-graph &&
 		git replace HEAD~1 HEAD~2 &&
+		graph_git_two_modes "commit-graph verify" &&
 		git -c core.commitGraph=false log >expect &&
 		git -c core.commitGraph=true log >actual &&
 		test_cmp expect actual &&
@@ -465,10 +425,10 @@ test_expect_success 'warn on improper hash version' '
 	)
 '
 
-test_expect_success 'lower layers have overflow chunk' '
+test_expect_success TIME_IS_64BIT,TIME_T_IS_64BIT 'lower layers have overflow chunk' '
 	cd "$TRASH_DIRECTORY/full" &&
 	UNIX_EPOCH_ZERO="@0 +0000" &&
-	FUTURE_DATE="@2147483646 +0000" &&
+	FUTURE_DATE="@4147483646 +0000" &&
 	rm -f .git/objects/info/commit-graph &&
 	test_commit --date "$FUTURE_DATE" future-1 &&
 	test_commit --date "$UNIX_EPOCH_ZERO" old-1 &&
@@ -496,7 +456,7 @@ test_expect_success 'git commit-graph verify' '
 	cd "$TRASH_DIRECTORY/full" &&
 	git rev-parse commits/8 | git -c commitGraph.generationVersion=1 commit-graph write --stdin-commits &&
 	git commit-graph verify >output &&
-	graph_read_expect 9 extra_edges
+	graph_read_expect 9 extra_edges 1
 '
 
 NUM_COMMITS=9
@@ -693,11 +653,32 @@ test_expect_success 'detect incorrect chunk count' '
 		$GRAPH_CHUNK_LOOKUP_OFFSET
 '
 
-test_expect_success 'git fsck (checks commit-graph)' '
+test_expect_success 'git fsck (checks commit-graph when config set to true)' '
 	cd "$TRASH_DIRECTORY/full" &&
 	git fsck &&
 	corrupt_graph_and_verify $GRAPH_BYTE_FOOTER "\00" \
 		"incorrect checksum" &&
+	cp commit-graph-pre-write-test $objdir/info/commit-graph &&
+	test_must_fail git -c core.commitGraph=true fsck
+'
+
+test_expect_success 'git fsck (ignores commit-graph when config set to false)' '
+	cd "$TRASH_DIRECTORY/full" &&
+	git fsck &&
+	corrupt_graph_and_verify $GRAPH_BYTE_FOOTER "\00" \
+		"incorrect checksum" &&
+	cp commit-graph-pre-write-test $objdir/info/commit-graph &&
+	git -c core.commitGraph=false fsck
+'
+
+test_expect_success 'git fsck (checks commit-graph when config unset)' '
+	cd "$TRASH_DIRECTORY/full" &&
+	test_when_finished "git config core.commitGraph true" &&
+
+	git fsck &&
+	corrupt_graph_and_verify $GRAPH_BYTE_FOOTER "\00" \
+		"incorrect checksum" &&
+	test_unconfig core.commitGraph &&
 	cp commit-graph-pre-write-test $objdir/info/commit-graph &&
 	test_must_fail git fsck
 '
@@ -803,10 +784,6 @@ test_expect_success 'set up and verify repo with generation data overflow chunk'
 	objdir=".git/objects" &&
 	UNIX_EPOCH_ZERO="@0 +0000" &&
 	FUTURE_DATE="@2147483646 +0000" &&
-	test_oid_cache <<-EOF &&
-	oid_version sha1:1
-	oid_version sha256:2
-	EOF
 	cd "$TRASH_DIRECTORY" &&
 	mkdir repo &&
 	cd repo &&

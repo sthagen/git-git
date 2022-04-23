@@ -172,8 +172,8 @@ static int write_option_max_new_filters(const struct option *opt,
 		const char *s;
 		*to = strtol(arg, (char **)&s, 10);
 		if (*s)
-			return error(_("%s expects a numerical value"),
-				     optname(opt, opt->flags));
+			return error(_("option `%s' expects a numerical value"),
+				     "max-new-filters");
 	}
 	return 0;
 }
@@ -192,7 +192,7 @@ static int git_commit_graph_write_config(const char *var, const char *value,
 
 static int graph_write(int argc, const char **argv)
 {
-	struct string_list pack_indexes = STRING_LIST_INIT_NODUP;
+	struct string_list pack_indexes = STRING_LIST_INIT_DUP;
 	struct strbuf buf = STRBUF_INIT;
 	struct oidset commits = OIDSET_INIT;
 	struct object_directory *odb = NULL;
@@ -263,7 +263,6 @@ static int graph_write(int argc, const char **argv)
 	    git_env_bool(GIT_TEST_COMMIT_GRAPH_CHANGED_PATHS, 0))
 		flags |= COMMIT_GRAPH_WRITE_BLOOM_FILTERS;
 
-	read_replace_refs = 0;
 	odb = find_odb(the_repository, opts.obj_dir);
 
 	if (opts.reachable) {
@@ -274,8 +273,8 @@ static int graph_write(int argc, const char **argv)
 
 	if (opts.stdin_packs) {
 		while (strbuf_getline(&buf, stdin) != EOF)
-			string_list_append(&pack_indexes,
-					   strbuf_detach(&buf, NULL));
+			string_list_append_nodup(&pack_indexes,
+						 strbuf_detach(&buf, NULL));
 	} else if (opts.stdin_commits) {
 		oidset_init(&commits, 0);
 		if (opts.progress)
@@ -318,6 +317,7 @@ int cmd_commit_graph(int argc, const char **argv, const char *prefix)
 	if (!argc)
 		goto usage;
 
+	read_replace_refs = 0;
 	save_commit_buffer = 0;
 
 	if (!strcmp(argv[0], "verify"))

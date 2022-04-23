@@ -28,9 +28,9 @@ static const char builtin_diff_usage[] =
 "git diff [<options>] [<commit>] [--] [<path>...]\n"
 "   or: git diff [<options>] --cached [--merge-base] [<commit>] [--] [<path>...]\n"
 "   or: git diff [<options>] [--merge-base] <commit> [<commit>...] <commit> [--] [<path>...]\n"
-"   or: git diff [<options>] <commit>...<commit>] [--] [<path>...]\n"
-"   or: git diff [<options>] <blob> <blob>]\n"
-"   or: git diff [<options>] --no-index [--] <path> <path>]\n"
+"   or: git diff [<options>] <commit>...<commit> [--] [<path>...]\n"
+"   or: git diff [<options>] <blob> <blob>\n"
+"   or: git diff [<options>] --no-index [--] <path> <path>\n"
 COMMON_DIFF_OPTIONS_HELP;
 
 static const char *blob_path(struct object_array_entry *entry)
@@ -436,6 +436,11 @@ int cmd_diff(int argc, const char **argv, const char *prefix)
 	}
 
 	prefix = setup_git_directory_gently(&nongit);
+
+	if (!nongit) {
+		prepare_repo_settings(the_repository);
+		the_repository->settings.command_requires_full_index = 0;
+	}
 
 	if (!no_index) {
 		/*
