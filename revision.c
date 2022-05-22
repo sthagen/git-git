@@ -1440,6 +1440,9 @@ static int limit_list(struct rev_info *revs)
 		if (revs->min_age != -1 && (commit->date > revs->min_age) &&
 		    !revs->line_level_traverse)
 			continue;
+		if (revs->max_age_as_filter != -1 &&
+			(commit->date < revs->max_age_as_filter) && !revs->line_level_traverse)
+			continue;
 		date = commit->date;
 		p = &commit_list_insert(commit, p)->next;
 
@@ -1838,6 +1841,7 @@ void repo_init_revisions(struct repository *r,
 	revs->dense = 1;
 	revs->prefix = prefix;
 	revs->max_age = -1;
+	revs->max_age_as_filter = -1;
 	revs->min_age = -1;
 	revs->skip_count = -1;
 	revs->max_count = -1;
@@ -2217,6 +2221,9 @@ static int handle_revision_opt(struct rev_info *revs, int argc, const char **arg
 		return argcount;
 	} else if ((argcount = parse_long_opt("since", argv, &optarg))) {
 		revs->max_age = approxidate(optarg);
+		return argcount;
+	} else if ((argcount = parse_long_opt("since-as-filter", argv, &optarg))) {
+		revs->max_age_as_filter = approxidate(optarg);
 		return argcount;
 	} else if ((argcount = parse_long_opt("after", argv, &optarg))) {
 		revs->max_age = approxidate(optarg);
@@ -2833,7 +2840,7 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 	}
 	strvec_clear(&prune_data);
 
-	if (revs->def == NULL)
+	if (!revs->def)
 		revs->def = opt ? opt->def : NULL;
 	if (opt && opt->tweak)
 		opt->tweak(revs, opt);
@@ -3652,7 +3659,7 @@ static enum rewrite_result rewrite_one_1(struct rev_info *revs,
 			return rewrite_one_ok;
 		if (!p->parents)
 			return rewrite_one_noparents;
-		if ((p = one_relevant_parent(revs, p->parents)) == NULL)
+		if (!(p = one_relevant_parent(revs, p->parents)))
 			return rewrite_one_ok;
 		*pp = p;
 	}
@@ -3861,6 +3868,9 @@ enum commit_action get_commit_action(struct rev_info *revs, struct commit *commi
 	}
 	if (revs->min_age != -1 &&
 	    comparison_date(revs, commit) > revs->min_age)
+			return commit_ignore;
+	if (revs->max_age_as_filter != -1 &&
+	    comparison_date(revs, commit) < revs->max_age_as_filter)
 			return commit_ignore;
 	if (revs->min_parents || (revs->max_parents >= 0)) {
 		int n = commit_list_count(commit->parents);
