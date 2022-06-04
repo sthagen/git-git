@@ -3,6 +3,7 @@
 #include "tree.h"
 #include "tree-walk.h"
 #include "cache-tree.h"
+#include "bulk-checkin.h"
 #include "object-store.h"
 #include "replace-object.h"
 #include "promisor-remote.h"
@@ -98,6 +99,33 @@ struct cache_tree_sub *cache_tree_sub(struct cache_tree *it, const char *path)
 {
 	int pathlen = strlen(path);
 	return find_subtree(it, path, pathlen, 1);
+}
+
+struct cache_tree *cache_tree_find_path(struct cache_tree *it, const char *path)
+{
+	const char *slash;
+	int namelen;
+	struct cache_tree_sub it_sub = {
+		.cache_tree = it,
+	};
+	struct cache_tree_sub *down = &it_sub;
+
+	while (down) {
+		slash = strchrnul(path, '/');
+		namelen = slash - path;
+		down->cache_tree->entry_count = -1;
+		if (!*slash) {
+			int pos;
+			pos = cache_tree_subtree_pos(down->cache_tree, path, namelen);
+			if (0 <= pos)
+				return down->cache_tree->down[pos]->cache_tree;
+			return NULL;
+		}
+		down = find_subtree(it, path, namelen, 0);
+		path = slash + 1;
+	}
+
+	return NULL;
 }
 
 static int do_invalidate_path(struct cache_tree *it, const char *path)
@@ -474,8 +502,10 @@ int cache_tree_update(struct index_state *istate, int flags)
 
 	trace_performance_enter();
 	trace2_region_enter("cache_tree", "update", the_repository);
+	begin_odb_transaction();
 	i = update_one(istate->cache_tree, istate->cache, istate->cache_nr,
 		       "", 0, &skip, flags);
+	end_odb_transaction();
 	trace2_region_leave("cache_tree", "update", the_repository);
 	trace_performance_leave("cache_tree_update");
 	if (i < 0)
