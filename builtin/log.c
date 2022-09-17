@@ -52,6 +52,7 @@ static int default_encode_email_headers = 1;
 static int decoration_style;
 static int decoration_given;
 static int use_mailmap_config = 1;
+static unsigned int force_in_body_from;
 static const char *fmt_patch_subject_prefix = "PATCH";
 static int fmt_patch_name_max = FORMAT_PATCH_NAME_MAX_DEFAULT;
 static const char *fmt_pretty;
@@ -697,9 +698,10 @@ static int show_tag_object(const struct object_id *oid, struct rev_info *rev)
 	return 0;
 }
 
-static int show_tree_object(const struct object_id *oid,
-		struct strbuf *base,
-		const char *pathname, unsigned mode, void *context)
+static int show_tree_object(const struct object_id *oid UNUSED,
+			    struct strbuf *base UNUSED,
+			    const char *pathname, unsigned mode,
+			    void *context)
 {
 	FILE *file = context;
 	fprintf(file, "%s%s\n", pathname, S_ISDIR(mode) ? "/" : "");
@@ -1056,6 +1058,10 @@ static int git_format_config(const char *var, const char *value, void *cb)
 			from = xstrdup(git_committer_info(IDENT_NO_DATE));
 		else
 			from = NULL;
+		return 0;
+	}
+	if (!strcmp(var, "format.forceinbodyfrom")) {
+		force_in_body_from = git_config_bool(var, value);
 		return 0;
 	}
 	if (!strcmp(var, "format.notes")) {
@@ -1949,6 +1955,8 @@ int cmd_format_patch(int argc, const char **argv, const char *prefix)
 			   N_("show changes against <refspec> in cover letter or single patch")),
 		OPT_INTEGER(0, "creation-factor", &creation_factor,
 			    N_("percentage by which creation is weighted")),
+		OPT_BOOL(0, "force-in-body-from", &force_in_body_from,
+			 N_("show in-body From: even if identical to the e-mail header")),
 		OPT_END()
 	};
 
@@ -1991,6 +1999,8 @@ int cmd_format_patch(int argc, const char **argv, const char *prefix)
 			     builtin_format_patch_usage,
 			     PARSE_OPT_KEEP_ARGV0 | PARSE_OPT_KEEP_UNKNOWN_OPT |
 			     PARSE_OPT_KEEP_DASHDASH);
+
+	rev.force_in_body_from = force_in_body_from;
 
 	/* Make sure "0000-$sub.patch" gives non-negative length for $sub */
 	if (fmt_patch_name_max <= strlen("0000-") + strlen(fmt_patch_suffix))

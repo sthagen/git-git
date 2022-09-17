@@ -301,7 +301,7 @@ struct refname_hash_entry {
 	char refname[FLEX_ARRAY];
 };
 
-static int refname_hash_entry_cmp(const void *hashmap_cmp_fn_data,
+static int refname_hash_entry_cmp(const void *hashmap_cmp_fn_data UNUSED,
 				  const struct hashmap_entry *eptr,
 				  const struct hashmap_entry *entry_or_key,
 				  const void *keydata)
@@ -329,7 +329,7 @@ static struct refname_hash_entry *refname_hash_add(struct hashmap *map,
 
 static int add_one_refname(const char *refname,
 			   const struct object_id *oid,
-			   int flag, void *cbdata)
+			   int flag UNUSED, void *cbdata)
 {
 	struct hashmap *refname_map = cbdata;
 
@@ -1464,8 +1464,9 @@ static void set_option(struct transport *transport, const char *name, const char
 }
 
 
-static int add_oid(const char *refname, const struct object_id *oid, int flags,
-		   void *cb_data)
+static int add_oid(const char *refname UNUSED,
+		   const struct object_id *oid,
+		   int flags UNUSED, void *cb_data)
 {
 	struct oid_array *oids = cb_data;
 
@@ -1616,9 +1617,21 @@ static int do_fetch(struct transport *transport,
 				break;
 			}
 		}
-	} else if (transport->remote && transport->remote->fetch.nr)
-		refspec_ref_prefixes(&transport->remote->fetch,
-				     &transport_ls_refs_options.ref_prefixes);
+	} else {
+		struct branch *branch = branch_get(NULL);
+
+		if (transport->remote->fetch.nr)
+			refspec_ref_prefixes(&transport->remote->fetch,
+					     &transport_ls_refs_options.ref_prefixes);
+		if (branch_has_merge_config(branch) &&
+		    !strcmp(branch->remote_name, transport->remote->name)) {
+			int i;
+			for (i = 0; i < branch->merge_nr; i++) {
+				strvec_push(&transport_ls_refs_options.ref_prefixes,
+					    branch->merge[i]->src);
+			}
+		}
+	}
 
 	if (tags == TAGS_SET || tags == TAGS_DEFAULT) {
 		must_list_refs = 1;

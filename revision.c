@@ -119,10 +119,10 @@ struct path_and_oids_entry {
 	struct oidset trees;
 };
 
-static int path_and_oids_cmp(const void *hashmap_cmp_fn_data,
+static int path_and_oids_cmp(const void *hashmap_cmp_fn_data UNUSED,
 			     const struct hashmap_entry *eptr,
 			     const struct hashmap_entry *entry_or_key,
-			     const void *keydata)
+			     const void *keydata UNUSED)
 {
 	const struct path_and_oids_entry *e1, *e2;
 
@@ -373,18 +373,10 @@ static struct object *get_reference(struct rev_info *revs, const char *name,
 				    unsigned int flags)
 {
 	struct object *object;
-	struct commit *commit;
 
-	/*
-	 * If the repository has commit graphs, we try to opportunistically
-	 * look up the object ID in those graphs. Like this, we can avoid
-	 * parsing commit data from disk.
-	 */
-	commit = lookup_commit_in_graph(revs->repo, oid);
-	if (commit)
-		object = &commit->object;
-	else
-		object = parse_object(revs->repo, oid);
+	object = parse_object_with_flags(revs->repo, oid,
+					 revs->verify_objects ? 0 :
+					 PARSE_OBJECT_SKIP_HASH_CHECK);
 
 	if (!object) {
 		if (revs->ignore_missing)
@@ -1554,7 +1546,8 @@ int ref_excluded(struct string_list *ref_excludes, const char *path)
 }
 
 static int handle_one_ref(const char *path, const struct object_id *oid,
-			  int flag, void *cb_data)
+			  int flag UNUSED,
+			  void *cb_data)
 {
 	struct all_refs_cb *cb = cb_data;
 	struct object *object;
@@ -1629,8 +1622,11 @@ static void handle_one_reflog_commit(struct object_id *oid, void *cb_data)
 }
 
 static int handle_one_reflog_ent(struct object_id *ooid, struct object_id *noid,
-		const char *email, timestamp_t timestamp, int tz,
-		const char *message, void *cb_data)
+				 const char *email UNUSED,
+				 timestamp_t timestamp UNUSED,
+				 int tz UNUSED,
+				 const char *message UNUSED,
+				 void *cb_data)
 {
 	handle_one_reflog_commit(ooid, cb_data);
 	handle_one_reflog_commit(noid, cb_data);
@@ -1638,8 +1634,8 @@ static int handle_one_reflog_ent(struct object_id *ooid, struct object_id *noid,
 }
 
 static int handle_one_reflog(const char *refname_in_wt,
-			     const struct object_id *oid,
-			     int flag, void *cb_data)
+			     const struct object_id *oid UNUSED,
+			     int flag UNUSED, void *cb_data)
 {
 	struct all_refs_cb *cb = cb_data;
 	struct strbuf refname = STRBUF_INIT;
@@ -2426,6 +2422,7 @@ static int handle_revision_opt(struct rev_info *revs, int argc, const char **arg
 		revs->tree_objects = 1;
 		revs->blob_objects = 1;
 		revs->verify_objects = 1;
+		disable_commit_graph(revs->repo);
 	} else if (!strcmp(arg, "--unpacked")) {
 		revs->unpacked = 1;
 	} else if (starts_with(arg, "--unpacked=")) {

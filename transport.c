@@ -142,7 +142,7 @@ static void get_refs_from_bundle_inner(struct transport *transport)
 
 static struct ref *get_refs_from_bundle(struct transport *transport,
 					int for_push,
-					struct transport_ls_refs_options *transport_options)
+					struct transport_ls_refs_options *transport_options UNUSED)
 {
 	struct bundle_transport_data *data = transport->data;
 	struct ref *result = NULL;
@@ -386,7 +386,8 @@ static int fetch_refs_via_pack(struct transport *transport,
 	args.cloning = transport->cloning;
 	args.update_shallow = data->options.update_shallow;
 	args.from_promisor = data->options.from_promisor;
-	args.filter_options = data->options.filter_options;
+	list_objects_filter_copy(&args.filter_options,
+				 &data->options.filter_options);
 	args.refetch = data->options.refetch;
 	args.stateless_rpc = transport->stateless_rpc;
 	args.server_options = transport->server_options;
@@ -453,6 +454,7 @@ cleanup:
 
 	free_refs(refs_tmp);
 	free_refs(refs);
+	list_objects_filter_release(&args.filter_options);
 	return ret;
 }
 
@@ -893,6 +895,7 @@ static int disconnect_git(struct transport *transport)
 		finish_connect(data->conn);
 	}
 
+	list_objects_filter_release(&data->options.filter_options);
 	free(data);
 	return 0;
 }
