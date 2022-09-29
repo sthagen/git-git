@@ -723,7 +723,7 @@ static struct stored_bitmap *lazy_bitmap_for_commit(struct bitmap_index *bitmap_
 		ALLOC_GROW(xor_items, xor_items_nr + 1, xor_items_alloc);
 
 		if (xor_items_nr + 1 >= bitmap_git->entry_count) {
-			error(_("corrupt bitmap lookup table: xor chain exceed entry count"));
+			error(_("corrupt bitmap lookup table: xor chain exceeds entry count"));
 			goto corrupt;
 		}
 
@@ -830,10 +830,9 @@ struct ewah_bitmap *bitmap_for_commit(struct bitmap_index *bitmap_git,
 		if (!bitmap_git->table_lookup)
 			return NULL;
 
-		trace2_region_enter("pack-bitmap", "reading_lookup_table", the_repository);
+		/* this is a fairly hot codepath - no trace2_region please */
 		/* NEEDSWORK: cache misses aren't recorded */
 		bitmap = lazy_bitmap_for_commit(bitmap_git, commit);
-		trace2_region_leave("pack-bitmap", "reading_lookup_table", the_repository);
 		if (!bitmap)
 			return NULL;
 		return lookup_stored_bitmap(bitmap);
