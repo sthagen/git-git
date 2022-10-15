@@ -915,7 +915,7 @@ int read_author_script(const char *path, char **name, char **email, char **date,
 		error(_("missing 'GIT_AUTHOR_EMAIL'"));
 	if (date_i == -2)
 		error(_("missing 'GIT_AUTHOR_DATE'"));
-	if (date_i < 0 || email_i < 0 || date_i < 0 || err)
+	if (name_i < 0 || email_i < 0 || date_i < 0 || err)
 		goto finish;
 	*name = kv.items[name_i].util;
 	*email = kv.items[email_i].util;
@@ -6203,8 +6203,6 @@ int todo_list_rearrange_squash(struct todo_list *todo_list)
 			return error(_("the script was already rearranged."));
 		}
 
-		*commit_todo_item_at(&commit_todo, item->commit) = item;
-
 		parse_commit(item->commit);
 		commit_buffer = logmsg_reencode(item->commit, NULL, "UTF-8");
 		find_commit_subject(commit_buffer, &subject);
@@ -6271,6 +6269,8 @@ int todo_list_rearrange_squash(struct todo_list *todo_list)
 					strhash(entry->subject));
 			hashmap_put(&subject2item, &entry->entry);
 		}
+
+		*commit_todo_item_at(&commit_todo, item->commit) = item;
 	}
 
 	if (rearranged) {
