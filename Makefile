@@ -529,8 +529,9 @@ GIT-VERSION-FILE: FORCE
 #   template_dir
 #   sysconfdir
 # can be specified as a relative path some/where/else;
-# this is interpreted as relative to $(prefix) and "git" at
-# runtime figures out where they are based on the path to the executable.
+# this is interpreted as relative to $(prefix) and "git" built with
+# RUNTIME_PREFIX flag will figure out (at runtime) where they are
+# based on the path to the executable.
 # Additionally, the following will be treated as relative by "git" if they
 # begin with "$(prefix)/":
 #   mandir
@@ -1338,6 +1339,7 @@ BASIC_CFLAGS += -DSHA1DC_FORCE_ALIGNED_ACCESS
 endif
 ifneq ($(filter leak,$(SANITIZERS)),)
 BASIC_CFLAGS += -DSUPPRESS_ANNOTATED_LEAKS
+BASIC_CFLAGS += -O0
 SANITIZE_LEAK = YesCompiledWithIt
 endif
 ifneq ($(filter address,$(SANITIZERS)),)
@@ -2038,11 +2040,13 @@ ifdef FSMONITOR_DAEMON_BACKEND
 	COMPAT_CFLAGS += -DHAVE_FSMONITOR_DAEMON_BACKEND
 	COMPAT_OBJS += compat/fsmonitor/fsm-listen-$(FSMONITOR_DAEMON_BACKEND).o
 	COMPAT_OBJS += compat/fsmonitor/fsm-health-$(FSMONITOR_DAEMON_BACKEND).o
+	COMPAT_OBJS += compat/fsmonitor/fsm-ipc-$(FSMONITOR_DAEMON_BACKEND).o
 endif
 
 ifdef FSMONITOR_OS_SETTINGS
 	COMPAT_CFLAGS += -DHAVE_FSMONITOR_OS_SETTINGS
 	COMPAT_OBJS += compat/fsmonitor/fsm-settings-$(FSMONITOR_OS_SETTINGS).o
+	COMPAT_OBJS += compat/fsmonitor/fsm-path-utils-$(FSMONITOR_OS_SETTINGS).o
 endif
 
 ifeq ($(TCLTK_PATH),)
