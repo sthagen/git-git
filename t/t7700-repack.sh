@@ -426,6 +426,51 @@ test_expect_success '--write-midx -b packs non-kept objects' '
 	)
 '
 
+test_expect_success '--write-midx removes stale pack-based bitmaps' '
+       rm -fr repo &&
+       git init repo &&
+       test_when_finished "rm -fr repo" &&
+       (
+		cd repo &&
+		test_commit base &&
+		GIT_TEST_MULTI_PACK_INDEX=0 git repack -Ab &&
+
+		pack_bitmap=$(ls $objdir/pack/pack-*.bitmap) &&
+		test_path_is_file "$pack_bitmap" &&
+
+		test_commit tip &&
+		GIT_TEST_MULTI_PACK_INDEX=0 git repack -bm &&
+
+		test_path_is_file $midx &&
+		test_path_is_file $midx-$(midx_checksum $objdir).bitmap &&
+		test_path_is_missing $pack_bitmap
+       )
+'
+
+test_expect_success '--write-midx with --pack-kept-objects' '
+	git init repo &&
+	test_when_finished "rm -fr repo" &&
+	(
+		cd repo &&
+
+		test_commit one &&
+		test_commit two &&
+
+		one="$(echo "one" | git pack-objects --revs $objdir/pack/pack)" &&
+		two="$(echo "one..two" | git pack-objects --revs $objdir/pack/pack)" &&
+
+		keep="$objdir/pack/pack-$one.keep" &&
+		touch "$keep" &&
+
+		git repack --write-midx --write-bitmap-index --geometric=2 -d \
+			--pack-kept-objects &&
+
+		test_path_is_file $keep &&
+		test_path_is_file $midx &&
+		test_path_is_file $midx-$(midx_checksum $objdir).bitmap
+	)
+'
+
 test_expect_success TTY '--quiet disables progress' '
 	test_terminal env GIT_PROGRESS_DELAY=0 \
 		git -C midx repack -ad --quiet --write-midx 2>stderr &&
