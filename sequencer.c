@@ -375,6 +375,7 @@ int sequencer_remove_state(struct replay_opts *opts)
 	}
 
 	free(opts->gpg_sign);
+	free(opts->reflog_action);
 	free(opts->default_strategy);
 	free(opts->strategy);
 	for (i = 0; i < opts->xopts_nr; i++)
@@ -1050,6 +1051,8 @@ static int run_git_commit(const char *defmsg,
 			     gpg_opt, gpg_opt);
 	}
 
+	strvec_pushf(&cmd.env, GIT_REFLOG_ACTION "=%s", opts->reflog_message);
+
 	if (opts->committer_date_is_author_date)
 		strvec_pushf(&cmd.env, "GIT_COMMITTER_DATE=%s",
 			     opts->ignore_date ?
@@ -1589,8 +1592,8 @@ static int try_to_commit(struct repository *r,
 		goto out;
 	}
 
-	if (update_head_with_reflog(current_head, oid,
-				    getenv("GIT_REFLOG_ACTION"), msg, &err)) {
+	if (update_head_with_reflog(current_head, oid, opts->reflog_message,
+				    msg, &err)) {
 		res = error("%s", err.buf);
 		goto out;
 	}
@@ -3672,17 +3675,28 @@ static int do_label(struct repository *r, const char *name, int len)
 	return ret;
 }
 
+static const char *sequencer_reflog_action(struct replay_opts *opts)
+{
+	if (!opts->reflog_action) {
+		opts->reflog_action = getenv(GIT_REFLOG_ACTION);
+		opts->reflog_action =
+			xstrdup(opts->reflog_action ? opts->reflog_action
+						    : action_name(opts));
+	}
+
+	return opts->reflog_action;
+}
+
 __attribute__((format (printf, 3, 4)))
 static const char *reflog_message(struct replay_opts *opts,
 	const char *sub_action, const char *fmt, ...)
 {
 	va_list ap;
 	static struct strbuf buf = STRBUF_INIT;
-	char *reflog_action = getenv(GIT_REFLOG_ACTION);
 
 	va_start(ap, fmt);
 	strbuf_reset(&buf);
-	strbuf_addstr(&buf, reflog_action ? reflog_action : action_name(opts));
+	strbuf_addstr(&buf, sequencer_reflog_action(opts));
 	if (sub_action)
 		strbuf_addf(&buf, " (%s)", sub_action);
 	if (fmt) {
@@ -3692,6 +3706,28 @@ static const char *reflog_message(struct replay_opts *opts,
 	va_end(ap);
 
 	return buf.buf;
+}
+
+static struct commit *lookup_label(struct repository *r, const char *label,
+				   int len, struct strbuf *buf)
+{
+	struct commit *commit;
+	struct object_id oid;
+
+	strbuf_reset(buf);
+	strbuf_addf(buf, "refs/rewritten/%.*s", len, label);
+	if (!read_ref(buf->buf, &oid)) {
+		commit = lookup_commit_object(r, &oid);
+	} else {
+		/* fall back to non-rewritten ref or commit */
+		strbuf_splice(buf, 0, strlen("refs/rewritten/"), "", 0);
+		commit = lookup_commit_reference_by_name(buf->buf);
+	}
+
+	if (!commit)
+		error(_("could not resolve '%s'"), buf->buf);
+
+	return commit;
 }
 
 static int do_reset(struct repository *r,
@@ -3725,6 +3761,7 @@ static int do_reset(struct repository *r,
 		oidcpy(&oid, &opts->squash_onto);
 	} else {
 		int i;
+		struct commit *commit;
 
 		/* Determine the length of the label */
 		for (i = 0; i < len; i++)
@@ -3732,12 +3769,12 @@ static int do_reset(struct repository *r,
 				break;
 		len = i;
 
-		strbuf_addf(&ref_name, "refs/rewritten/%.*s", len, name);
-		if (get_oid(ref_name.buf, &oid) &&
-		    get_oid(ref_name.buf + strlen("refs/rewritten/"), &oid)) {
-			ret = error(_("could not read '%s'"), ref_name.buf);
+		commit = lookup_label(r, name, len, &ref_name);
+		if (!commit) {
+			ret = -1;
 			goto cleanup;
 		}
+		oid = commit->object.oid;
 	}
 
 	setup_unpack_trees_porcelain(&unpack_tree_opts, "reset");
@@ -3748,6 +3785,7 @@ static int do_reset(struct repository *r,
 	unpack_tree_opts.merge = 1;
 	unpack_tree_opts.update = 1;
 	unpack_tree_opts.preserve_ignored = 0; /* FIXME: !overwrite_ignore */
+	unpack_tree_opts.skip_cache_tree_update = 1;
 	init_checkout_metadata(&unpack_tree_opts.meta, name, &oid, NULL);
 
 	if (repo_read_index_unmerged(r)) {
@@ -3782,26 +3820,6 @@ cleanup:
 	strbuf_release(&ref_name);
 	clear_unpack_trees_porcelain(&unpack_tree_opts);
 	return ret;
-}
-
-static struct commit *lookup_label(const char *label, int len,
-				   struct strbuf *buf)
-{
-	struct commit *commit;
-
-	strbuf_reset(buf);
-	strbuf_addf(buf, "refs/rewritten/%.*s", len, label);
-	commit = lookup_commit_reference_by_name(buf->buf);
-	if (!commit) {
-		/* fall back to non-rewritten ref or commit */
-		strbuf_splice(buf, 0, strlen("refs/rewritten/"), "", 0);
-		commit = lookup_commit_reference_by_name(buf->buf);
-	}
-
-	if (!commit)
-		error(_("could not resolve '%s'"), buf->buf);
-
-	return commit;
 }
 
 static int do_merge(struct repository *r,
@@ -3851,7 +3869,7 @@ static int do_merge(struct repository *r,
 		k = strcspn(p, " \t\n");
 		if (!k)
 			continue;
-		merge_commit = lookup_label(p, k, &ref_name);
+		merge_commit = lookup_label(r, p, k, &ref_name);
 		if (!merge_commit) {
 			ret = error(_("unable to parse '%.*s'"), k, p);
 			goto leave_merge;
@@ -4128,10 +4146,13 @@ static int write_update_refs_state(struct string_list *refs_to_oids)
 	struct string_list_item *item;
 	char *path;
 
-	if (!refs_to_oids->nr)
-		return 0;
-
 	path = rebase_path_update_refs(the_repository->gitdir);
+
+	if (!refs_to_oids->nr) {
+		if (unlink(path) && errno != ENOENT)
+			result = error_errno(_("could not unlink: %s"), path);
+		goto cleanup;
+	}
 
 	if (safe_create_leading_directories(path)) {
 		result = error(_("unable to create leading directories of %s"),
@@ -4495,7 +4516,7 @@ static int checkout_onto(struct repository *r, struct replay_opts *opts,
 				RESET_HEAD_RUN_POST_CHECKOUT_HOOK,
 		.head_msg = reflog_message(opts, "start", "checkout %s",
 					   onto_name),
-		.default_reflog_action = "rebase"
+		.default_reflog_action = sequencer_reflog_action(opts)
 	};
 	if (reset_head(r, &ropts)) {
 		apply_autostash(rebase_path_autostash());
@@ -4564,11 +4585,8 @@ static int pick_commits(struct repository *r,
 			struct replay_opts *opts)
 {
 	int res = 0, reschedule = 0;
-	char *prev_reflog_action;
 
-	/* Note that 0 for 3rd parameter of setenv means set only if not set */
-	setenv(GIT_REFLOG_ACTION, action_name(opts), 0);
-	prev_reflog_action = xstrdup(getenv(GIT_REFLOG_ACTION));
+	opts->reflog_message = sequencer_reflog_action(opts);
 	if (opts->allow_ff)
 		assert(!(opts->signoff || opts->no_commit ||
 			 opts->record_origin || should_edit(opts) ||
@@ -4616,14 +4634,12 @@ static int pick_commits(struct repository *r,
 		}
 		if (item->command <= TODO_SQUASH) {
 			if (is_rebase_i(opts))
-				setenv(GIT_REFLOG_ACTION, reflog_message(opts,
-					command_to_string(item->command), NULL),
-					1);
+				opts->reflog_message = reflog_message(opts,
+				      command_to_string(item->command), NULL);
+
 			res = do_pick_commit(r, item, opts,
 					     is_final_fixup(todo_list),
 					     &check_todo);
-			if (is_rebase_i(opts))
-				setenv(GIT_REFLOG_ACTION, prev_reflog_action, 1);
 			if (is_rebase_i(opts) && res < 0) {
 				/* Reschedule */
 				advise(_(rescheduled_advice),
@@ -5046,8 +5062,6 @@ int sequencer_continue(struct repository *r, struct replay_opts *opts)
 	if (read_populate_opts(opts))
 		return -1;
 	if (is_rebase_i(opts)) {
-		char *previous_reflog_action;
-
 		if ((res = read_populate_todo(r, &todo_list, opts)))
 			goto release_todo_list;
 
@@ -5058,13 +5072,11 @@ int sequencer_continue(struct repository *r, struct replay_opts *opts)
 			unlink(rebase_path_dropped());
 		}
 
-		previous_reflog_action = xstrdup(getenv(GIT_REFLOG_ACTION));
-		setenv(GIT_REFLOG_ACTION, reflog_message(opts, "continue", NULL), 1);
+		opts->reflog_message = reflog_message(opts, "continue", NULL);
 		if (commit_staged_changes(r, opts, &todo_list)) {
 			res = -1;
 			goto release_todo_list;
 		}
-		setenv(GIT_REFLOG_ACTION, previous_reflog_action, 1);
 	} else if (!file_exists(get_todo_path(opts)))
 		return continue_single_pick(r, opts);
 	else if ((res = read_populate_todo(r, &todo_list, opts)))
@@ -5112,7 +5124,7 @@ static int single_pick(struct repository *r,
 			TODO_PICK : TODO_REVERT;
 	item.commit = cmit;
 
-	setenv(GIT_REFLOG_ACTION, action_name(opts), 0);
+	opts->reflog_message = sequencer_reflog_action(opts);
 	return do_pick_commit(r, &item, opts, 0, &check_todo);
 }
 
