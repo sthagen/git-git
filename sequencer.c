@@ -2479,12 +2479,39 @@ static int is_command(enum todo_command command, const char **bol)
 {
 	const char *str = todo_command_info[command].str;
 	const char nick = todo_command_info[command].c;
-	const char *p = *bol + 1;
+	const char *p = *bol;
 
-	return skip_prefix(*bol, str, bol) ||
-		((nick && **bol == nick) &&
-		 (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || !*p) &&
-		 (*bol = p));
+	return (skip_prefix(p, str, &p) || (nick && *p++ == nick)) &&
+		(*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || !*p) &&
+		(*bol = p);
+}
+
+static int check_label_or_ref_arg(enum todo_command command, const char *arg)
+{
+	switch (command) {
+	case TODO_LABEL:
+		/*
+		 * '#' is not a valid label as the merge command uses it to
+		 * separate merge parents from the commit subject.
+		 */
+		if (!strcmp(arg, "#") ||
+		    check_refname_format(arg, REFNAME_ALLOW_ONELEVEL))
+			return error(_("'%s' is not a valid label"), arg);
+		break;
+
+	case TODO_UPDATE_REF:
+		if (check_refname_format(arg, REFNAME_ALLOW_ONELEVEL))
+			return error(_("'%s' is not a valid refname"), arg);
+		if (check_refname_format(arg, 0))
+			return error(_("update-ref requires a fully qualified "
+				       "refname e.g. refs/heads/%s"), arg);
+		break;
+
+	default:
+		BUG("unexpected todo_command");
+	}
+
+	return 0;
 }
 
 static int parse_insn_line(struct repository *r, struct todo_item *item,
@@ -2513,7 +2540,8 @@ static int parse_insn_line(struct repository *r, struct todo_item *item,
 			break;
 		}
 	if (i >= TODO_COMMENT)
-		return -1;
+		return error(_("invalid command '%.*s'"),
+			     (int)strcspn(bol, " \t\r\n"), bol);
 
 	/* Eat up extra spaces/ tabs before object name */
 	padding = strspn(bol, " \t");
@@ -2535,19 +2563,26 @@ static int parse_insn_line(struct repository *r, struct todo_item *item,
 
 	if (item->command == TODO_EXEC || item->command == TODO_LABEL ||
 	    item->command == TODO_RESET || item->command == TODO_UPDATE_REF) {
+		int ret = 0;
+
 		item->commit = NULL;
 		item->arg_offset = bol - buf;
 		item->arg_len = (int)(eol - bol);
-		return 0;
+		if (item->command == TODO_LABEL ||
+		    item->command == TODO_UPDATE_REF) {
+			saved = *eol;
+			*eol = '\0';
+			ret = check_label_or_ref_arg(item->command, bol);
+			*eol = saved;
+		}
+		return ret;
 	}
 
 	if (item->command == TODO_FIXUP) {
-		if (skip_prefix(bol, "-C", &bol) &&
-		   (*bol == ' ' || *bol == '\t')) {
+		if (skip_prefix(bol, "-C", &bol)) {
 			bol += strspn(bol, " \t");
 			item->flags |= TODO_REPLACE_FIXUP_MSG;
-		} else if (skip_prefix(bol, "-c", &bol) &&
-				  (*bol == ' ' || *bol == '\t')) {
+		} else if (skip_prefix(bol, "-c", &bol)) {
 			bol += strspn(bol, " \t");
 			item->flags |= TODO_EDIT_FIXUP_MSG;
 		}
