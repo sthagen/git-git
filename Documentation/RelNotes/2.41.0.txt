@@ -69,6 +69,16 @@ UI, Workflows & Features
    learns "--omit-empty" to hide refs that whose formatting result
    becomes an empty string from the output.
 
+ * The sendemail-validate validate hook learned to pass the total
+   number of input files and where in the sequence each invocation is
+   via environment variables.
+
+ * When "gc" needs to retain unreachable objects, packing them into
+   cruft packs (instead of exploding them into loose object files) has
+   been offered as a more efficient option for some time.  Now the use
+   of cruft packs has been made the default and no longer considered
+   an experimental feature.
+
 
 Performance, Internal Implementation, Development Support etc.
 
@@ -109,6 +119,11 @@ Performance, Internal Implementation, Development Support etc.
 
  * "git write-tree" learns to work better with sparse-index.
 
+ * The on-disk reverse index that allows mapping from the pack offset
+   to the object name for the object stored at the offset has been
+   enabled by default.
+
+ * "git fsck" learned to validate the on-disk pack reverse index files.
 
 
 Fixes since v2.40
@@ -239,6 +254,20 @@ Fixes since v2.40
  * "git archive" run from a subdirectory mishandled attributes and
    paths outside the current directory.
    (merge 92b1dd1b9e rs/archive-from-subdirectory-fixes later to maint).
+
+ * The code to parse capability list for v0 on-wire protocol fell into
+   an infinite loop when a capability appears multiple times, which
+   has been corrected.
+
+ * Geometric repacking ("git repack --geometric=<n>") in a repository
+   that borrows from an alternate object database had various corner
+   case bugs, which have been corrected.
+   (merge d85cd18777 ps/fix-geom-repack-with-alternates later to maint).
+
+ * The "%GT" placeholder for the "--format" option of "git log" and
+   friends caused BUG() to trigger on a commit signed with an unknown
+   key, which has been corrected.
+   (merge 7891e46585 jk/gpg-trust-level-fix later to maint).
 
  * Other code cleanup, docfix, build fix, etc.
    (merge f7111175df as/doc-markup-fix later to maint).
