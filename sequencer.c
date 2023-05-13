@@ -3,6 +3,7 @@
 #include "advice.h"
 #include "alloc.h"
 #include "config.h"
+#include "copy.h"
 #include "environment.h"
 #include "gettext.h"
 #include "hex.h"
@@ -3625,14 +3626,14 @@ static int do_exec(struct repository *r, const char *command_line)
 			  "  git rebase --continue\n"
 			  "\n"),
 			command_line,
-			dirty ? N_("and made changes to the index and/or the "
-				"working tree\n") : "");
+			dirty ? _("and made changes to the index and/or the "
+				"working tree.\n") : "");
 		if (status == 127)
 			/* command not found */
 			status = 1;
 	} else if (dirty) {
 		warning(_("execution succeeded: %s\nbut "
-			  "left changes to the index and/or the working tree\n"
+			  "left changes to the index and/or the working tree.\n"
 			  "Commit or stash your changes, and then run\n"
 			  "\n"
 			  "  git rebase --continue\n"
