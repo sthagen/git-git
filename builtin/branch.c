@@ -83,7 +83,8 @@ static unsigned int colopts;
 
 define_list_config_array(color_branch_slots);
 
-static int git_branch_config(const char *var, const char *value, void *cb)
+static int git_branch_config(const char *var, const char *value,
+			     const struct config_context *ctx, void *cb)
 {
 	const char *slot_name;
 
@@ -117,7 +118,10 @@ static int git_branch_config(const char *var, const char *value, void *cb)
 		return 0;
 	}
 
-	return git_color_default_config(var, value, cb);
+	if (git_color_config(var, value, cb) < 0)
+		return -1;
+
+	return git_default_config(var, value, ctx, cb);
 }
 
 static const char *branch_get_color(enum color_branch ix)
@@ -366,17 +370,8 @@ static const char *quote_literal_for_format(const char *s)
 	static struct strbuf buf = STRBUF_INIT;
 
 	strbuf_reset(&buf);
-	while (*s) {
-		const char *ep = strchrnul(s, '%');
-		if (s < ep)
-			strbuf_add(&buf, s, ep - s);
-		if (*ep == '%') {
-			strbuf_addstr(&buf, "%%");
-			s = ep + 1;
-		} else {
-			s = ep;
-		}
-	}
+	while (strbuf_expand_step(&buf, &s))
+		strbuf_addstr(&buf, "%%");
 	return buf.buf;
 }
 
@@ -674,7 +669,7 @@ static int edit_branch_description(const char *branch_name)
 	exists = !read_branch_desc(&buf, branch_name);
 	if (!buf.len || buf.buf[buf.len-1] != '\n')
 		strbuf_addch(&buf, '\n');
-	strbuf_commented_addf(&buf,
+	strbuf_commented_addf(&buf, comment_line_char,
 		    _("Please edit the description for the branch\n"
 		      "  %s\n"
 		      "Lines starting with '%c' will be stripped.\n"),
@@ -685,7 +680,7 @@ static int edit_branch_description(const char *branch_name)
 		strbuf_release(&buf);
 		return -1;
 	}
-	strbuf_stripspace(&buf, 1);
+	strbuf_stripspace(&buf, comment_line_char);
 
 	strbuf_addf(&name, "branch.%s.description", branch_name);
 	if (buf.len || exists)
