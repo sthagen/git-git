@@ -26,6 +26,10 @@ UI, Workflows & Features
    were regular files, to allow "git diff <(process) <(substitution)"
    some shells support.
 
+ * Help newbies by suggesting that there are cases where force-pushing
+   is a valid and sensible thing to update a branch at a remote
+   repository, rather than reconciling with merge/rebase.
+
 
 Performance, Internal Implementation, Development Support etc.
 
@@ -59,6 +63,9 @@ Performance, Internal Implementation, Development Support etc.
 
  * Enumerating refs in the packed-refs file, while excluding refs that
    match certain patterns, has been optimized.
+
+ * Mark-up unused parameters in the code so that we can eventually
+   enable -Wunused-parameter by default.
 
 
 Fixes since v2.41
@@ -186,6 +193,24 @@ Fixes since v2.41
    subsystem, which has been corrected.
    (merge 9281cd07f0 tb/fsck-no-progress later to maint).
 
+ * Various offset computation in the code that accesses the packfiles
+   and other data in the object layer has been hardened against
+   arithmetic overflow, especially on 32-bit systems.
+   (merge 9a25cad7e0 tb/object-access-overflow-protection later to maint).
+
+ * Names of MinGW header files are spelled in mixed case in some
+   source files, but the build host can be using case sensitive
+   filesystem with header files with their name spelled in all
+   lowercase.
+   (merge 4a53d0d0bc mh/mingw-case-sensitive-build later to maint).
+
+ * Update message mark-up for i18n in "git bundle".
+   (merge bbb6acd998 dk/bundle-i18n-more later to maint).
+
+ * "git tag --list --points-at X" showed tags that directly refers to
+   object X, but did not list a tag that points at such a tag, which
+   has been corrected.
+
  * Other code cleanup, docfix, build fix, etc.
    (merge 51f9d2e563 sa/doc-ls-remote later to maint).
    (merge c6d26a9dda jk/format-patch-message-id-unleak later to maint).
@@ -209,3 +234,13 @@ Fixes since v2.41
    (merge 6e6a529b57 jk/fsck-indices-in-worktrees later to maint).
    (merge 3e81b896f7 rs/packet-length-simplify later to maint).
    (merge 4c9cb51fe7 mh/doc-credential-helpers later to maint).
+   (merge 3437f549dd jr/gitignore-doc-example-markup later to maint).
+   (merge 947ebd62a0 jc/am-parseopt-fix later to maint).
+   (merge e12cb98e1e jc/branch-parseopt-fix later to maint).
+   (merge d6f598e443 jc/gitignore-doc-pattern-markup later to maint).
+   (merge a2dad4868b jc/transport-parseopt-fix later to maint).
+   (merge 68cbb20e73 jc/parse-options-show-branch later to maint).
+   (merge 3821eb6c3d jc/parse-options-reset later to maint).
+   (merge c48af99a3e bb/trace2-comment-fix later to maint).
+   (merge c95ae3ff9c rs/describe-parseopt-fix later to maint).
+   (merge 36f76d2a25 rs/pack-objects-parseopt-fix later to maint).
