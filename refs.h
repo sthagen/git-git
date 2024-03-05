@@ -399,6 +399,12 @@ int refs_for_each_rawref(struct ref_store *refs, each_ref_fn fn, void *cb_data);
 int for_each_rawref(each_ref_fn fn, void *cb_data);
 
 /*
+ * Iterates over all refs including root refs, i.e. pseudorefs and HEAD.
+ */
+int refs_for_each_include_root_refs(struct ref_store *refs, each_ref_fn fn,
+				    void *cb_data);
+
+/*
  * Normalizes partial refs to their fully qualified form.
  * Will prepend <prefix> to the <pattern> if it doesn't start with 'refs/'.
  * <prefix> will default to 'refs/' if NULL.
@@ -440,7 +446,20 @@ int refs_create_reflog(struct ref_store *refs, const char *refname,
 		       struct strbuf *err);
 int safe_create_reflog(const char *refname, struct strbuf *err);
 
-/** Reads log for the value of ref during at_time. **/
+/**
+ * Reads log for the value of ref during at_time (in which case "cnt" should be
+ * negative) or the reflog "cnt" entries from the top (in which case "at_time"
+ * should be 0).
+ *
+ * If we found the reflog entry in question, returns 0 (and details of the
+ * entry can be found in the out-parameters).
+ *
+ * If we ran out of reflog entries, the out-parameters are filled with the
+ * details of the oldest entry we did find, and the function returns 1. Note
+ * that there is one important special case here! If the reflog was empty
+ * and the caller asked for the 0-th cnt, we will return "1" but leave the
+ * "oid" field untouched.
+ **/
 int read_ref_at(struct ref_store *refs,
 		const char *refname, unsigned int flags,
 		timestamp_t at_time, int cnt,
@@ -1029,5 +1048,8 @@ extern struct ref_namespace_info ref_namespace[NAMESPACE__COUNT];
  * variables. Modify a namespace as specified by its ref_namespace key.
  */
 void update_ref_namespace(enum ref_namespace namespace, char *ref);
+
+int is_pseudoref(struct ref_store *refs, const char *refname);
+int is_headref(struct ref_store *refs, const char *refname);
 
 #endif /* REFS_H */

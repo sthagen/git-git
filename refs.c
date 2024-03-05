@@ -860,6 +860,47 @@ static int is_pseudoref_syntax(const char *refname)
 	return 1;
 }
 
+int is_pseudoref(struct ref_store *refs, const char *refname)
+{
+	static const char *const irregular_pseudorefs[] = {
+		"AUTO_MERGE",
+		"BISECT_EXPECTED_REV",
+		"NOTES_MERGE_PARTIAL",
+		"NOTES_MERGE_REF",
+		"MERGE_AUTOSTASH",
+	};
+	struct object_id oid;
+	size_t i;
+
+	if (!is_pseudoref_syntax(refname))
+		return 0;
+
+	if (ends_with(refname, "_HEAD")) {
+		refs_resolve_ref_unsafe(refs, refname,
+					RESOLVE_REF_READING | RESOLVE_REF_NO_RECURSE,
+					&oid, NULL);
+		return !is_null_oid(&oid);
+	}
+
+	for (i = 0; i < ARRAY_SIZE(irregular_pseudorefs); i++)
+		if (!strcmp(refname, irregular_pseudorefs[i])) {
+			refs_resolve_ref_unsafe(refs, refname,
+						RESOLVE_REF_READING | RESOLVE_REF_NO_RECURSE,
+						&oid, NULL);
+			return !is_null_oid(&oid);
+		}
+
+	return 0;
+}
+
+int is_headref(struct ref_store *refs, const char *refname)
+{
+	if (!strcmp(refname, "HEAD"))
+		return refs_ref_exists(refs, refname);
+
+	return 0;
+}
+
 static int is_current_worktree_ref(const char *ref) {
 	return is_pseudoref_syntax(ref) || is_per_worktree_ref(ref);
 }
@@ -1039,55 +1080,40 @@ static int read_ref_at_ent(struct object_id *ooid, struct object_id *noid,
 			   const char *message, void *cb_data)
 {
 	struct read_ref_at_cb *cb = cb_data;
-	int reached_count;
 
 	cb->tz = tz;
 	cb->date = timestamp;
 
-	/*
-	 * It is not possible for cb->cnt == 0 on the first iteration because
-	 * that special case is handled in read_ref_at().
-	 */
-	if (cb->cnt > 0)
-		cb->cnt--;
-	reached_count = cb->cnt == 0 && !is_null_oid(ooid);
-	if (timestamp <= cb->at_time || reached_count) {
+	if (timestamp <= cb->at_time || cb->cnt == 0) {
 		set_read_ref_cutoffs(cb, timestamp, tz, message);
 		/*
 		 * we have not yet updated cb->[n|o]oid so they still
 		 * hold the values for the previous record.
 		 */
-		if (!is_null_oid(&cb->ooid) && !oideq(&cb->ooid, noid))
-			warning(_("log for ref %s has gap after %s"),
+		if (!is_null_oid(&cb->ooid)) {
+			oidcpy(cb->oid, noid);
+			if (!oideq(&cb->ooid, noid))
+				warning(_("log for ref %s has gap after %s"),
 					cb->refname, show_date(cb->date, cb->tz, DATE_MODE(RFC2822)));
-		if (reached_count)
-			oidcpy(cb->oid, ooid);
-		else if (!is_null_oid(&cb->ooid) || cb->date == cb->at_time)
+		}
+		else if (cb->date == cb->at_time)
 			oidcpy(cb->oid, noid);
 		else if (!oideq(noid, cb->oid))
 			warning(_("log for ref %s unexpectedly ended on %s"),
 				cb->refname, show_date(cb->date, cb->tz,
 						       DATE_MODE(RFC2822)));
+		cb->reccnt++;
+		oidcpy(&cb->ooid, ooid);
+		oidcpy(&cb->noid, noid);
 		cb->found_it = 1;
+		return 1;
 	}
 	cb->reccnt++;
 	oidcpy(&cb->ooid, ooid);
 	oidcpy(&cb->noid, noid);
-	return cb->found_it;
-}
-
-static int read_ref_at_ent_newest(struct object_id *ooid UNUSED,
-				  struct object_id *noid,
-				  const char *email UNUSED,
-				  timestamp_t timestamp, int tz,
-				  const char *message, void *cb_data)
-{
-	struct read_ref_at_cb *cb = cb_data;
-
-	set_read_ref_cutoffs(cb, timestamp, tz, message);
-	oidcpy(cb->oid, noid);
-	/* We just want the first entry */
-	return 1;
+	if (cb->cnt > 0)
+		cb->cnt--;
+	return 0;
 }
 
 static int read_ref_at_ent_oldest(struct object_id *ooid, struct object_id *noid,
@@ -1099,7 +1125,7 @@ static int read_ref_at_ent_oldest(struct object_id *ooid, struct object_id *noid
 
 	set_read_ref_cutoffs(cb, timestamp, tz, message);
 	oidcpy(cb->oid, ooid);
-	if (is_null_oid(cb->oid))
+	if (cb->at_time && is_null_oid(cb->oid))
 		oidcpy(cb->oid, noid);
 	/* We just want the first entry */
 	return 1;
@@ -1122,14 +1148,24 @@ int read_ref_at(struct ref_store *refs, const char *refname,
 	cb.cutoff_cnt = cutoff_cnt;
 	cb.oid = oid;
 
-	if (cb.cnt == 0) {
-		refs_for_each_reflog_ent_reverse(refs, refname, read_ref_at_ent_newest, &cb);
-		return 0;
-	}
-
 	refs_for_each_reflog_ent_reverse(refs, refname, read_ref_at_ent, &cb);
 
 	if (!cb.reccnt) {
+		if (cnt == 0) {
+			/*
+			 * The caller asked for ref@{0}, and we had no entries.
+			 * It's a bit subtle, but in practice all callers have
+			 * prepped the "oid" field with the current value of
+			 * the ref, which is the most reasonable fallback.
+			 *
+			 * We'll put dummy values into the out-parameters (so
+			 * they're not just uninitialized garbage), and the
+			 * caller can take our return value as a hint that
+			 * we did not find any such reflog.
+			 */
+			set_read_ref_cutoffs(&cb, 0, 0, "empty reflog");
+			return 1;
+		}
 		if (flags & GET_OID_QUIETLY)
 			exit(128);
 		else
@@ -1718,6 +1754,13 @@ int refs_for_each_rawref(struct ref_store *refs, each_ref_fn fn, void *cb_data)
 int for_each_rawref(each_ref_fn fn, void *cb_data)
 {
 	return refs_for_each_rawref(get_main_ref_store(the_repository), fn, cb_data);
+}
+
+int refs_for_each_include_root_refs(struct ref_store *refs, each_ref_fn fn,
+				    void *cb_data)
+{
+	return do_for_each_ref(refs, "", NULL, fn, 0,
+			       DO_FOR_EACH_INCLUDE_ROOT_REFS, cb_data);
 }
 
 static int qsort_strcmp(const void *va, const void *vb)
