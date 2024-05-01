@@ -1368,11 +1368,37 @@ test_expect_success 'empty subject prefix does not have extra space' '
 	test_cmp expect actual
 '
 
-test_expect_success '--rfc' '
+test_expect_success '--rfc and --no-rfc' '
 	cat >expect <<-\EOF &&
 	Subject: [RFC PATCH 1/1] header with . in it
 	EOF
 	git format-patch -n -1 --stdout --rfc >patch &&
+	grep "^Subject:" patch >actual &&
+	test_cmp expect actual &&
+	git format-patch -n -1 --stdout --rfc --no-rfc >patch &&
+	sed -e "s/RFC //" expect >expect-raw &&
+	grep "^Subject:" patch >actual &&
+	test_cmp expect-raw actual
+'
+
+test_expect_success '--rfc=WIP and --rfc=' '
+	cat >expect <<-\EOF &&
+	Subject: [WIP PATCH 1/1] header with . in it
+	EOF
+	git format-patch -n -1 --stdout --rfc=WIP >patch &&
+	grep "^Subject:" patch >actual &&
+	test_cmp expect actual &&
+	git format-patch -n -1 --stdout --rfc --rfc= >patch &&
+	sed -e "s/WIP //" expect >expect-raw &&
+	grep "^Subject:" patch >actual &&
+	test_cmp expect-raw actual
+'
+
+test_expect_success '--rfc=-(WIP) appends' '
+	cat >expect <<-\EOF &&
+	Subject: [PATCH (WIP) 1/1] header with . in it
+	EOF
+	git format-patch -n -1 --stdout --rfc="-(WIP)" >patch &&
 	grep "^Subject:" patch >actual &&
 	test_cmp expect actual
 '
@@ -1395,6 +1421,27 @@ test_expect_success '--rfc is argument order independent' '
 		--subject-prefix="PATCH foobar" >patch &&
 	grep "^Subject:" patch >actual &&
 	test_cmp expect actual
+'
+
+test_expect_success '--subject-prefix="<non-empty>" and -k cannot be used together' '
+	echo "fatal: options '\''--subject-prefix/--rfc'\'' and '\''-k'\'' cannot be used together" >expect.err &&
+	test_must_fail git format-patch -1 --stdout --subject-prefix="MYPREFIX" -k >actual.out 2>actual.err &&
+	test_must_be_empty actual.out &&
+	test_cmp expect.err actual.err
+'
+
+test_expect_success '--subject-prefix="" and -k cannot be used together' '
+	echo "fatal: options '\''--subject-prefix/--rfc'\'' and '\''-k'\'' cannot be used together" >expect.err &&
+	test_must_fail git format-patch -1 --stdout --subject-prefix="" -k >actual.out 2>actual.err &&
+	test_must_be_empty actual.out &&
+	test_cmp expect.err actual.err
+'
+
+test_expect_success '--rfc and -k cannot be used together' '
+	echo "fatal: options '\''--subject-prefix/--rfc'\'' and '\''-k'\'' cannot be used together" >expect.err &&
+	test_must_fail git format-patch -1 --stdout --rfc -k >actual.out 2>actual.err &&
+	test_must_be_empty actual.out &&
+	test_cmp expect.err actual.err
 '
 
 test_expect_success '--from=ident notices bogus ident' '
