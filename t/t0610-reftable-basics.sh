@@ -4,16 +4,13 @@
 #
 
 test_description='reftable basics'
+
 GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
 export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
+GIT_TEST_DEFAULT_REF_FORMAT=reftable
+export GIT_TEST_DEFAULT_REF_FORMAT
 
 . ./test-lib.sh
-
-if ! test_have_prereq REFTABLE
-then
-	skip_all='skipping reftable tests; set GIT_TEST_DEFAULT_REF_FORMAT=reftable'
-	test_done
-fi
 
 INVALID_OID=$(test_oid 001)
 
@@ -81,8 +78,8 @@ test_expect_success 'init: reinitializing reftable with files backend fails' '
 '
 
 test_expect_perms () {
-	local perms="$1"
-	local file="$2"
+	local perms="$1" &&
+	local file="$2" &&
 	local actual="$(ls -l "$file")" &&
 
 	case "$actual" in
@@ -286,7 +283,7 @@ test_expect_success 'ref transaction: creating symbolic ref fails with F/D confl
 	git init repo &&
 	test_commit -C repo A &&
 	cat >expect <<-EOF &&
-	error: unable to write symref for refs/heads: file/directory conflict
+	error: ${SQ}refs/heads/main${SQ} exists; cannot create ${SQ}refs/heads${SQ}
 	EOF
 	test_must_fail git -C repo symbolic-ref refs/heads refs/heads/foo 2>err &&
 	test_cmp expect err
@@ -851,6 +848,39 @@ test_expect_success 'reflog: updates via HEAD update HEAD reflog' '
 		echo new-one >expect &&
 		git log -1 --format=%s HEAD@{1} >actual &&
 		test_cmp expect actual
+	)
+'
+
+test_expect_success 'branch: copying branch with D/F conflict' '
+	test_when_finished "rm -rf repo" &&
+	git init repo &&
+	(
+		cd repo &&
+		test_commit A &&
+		git branch branch &&
+		cat >expect <<-EOF &&
+		error: ${SQ}refs/heads/branch${SQ} exists; cannot create ${SQ}refs/heads/branch/moved${SQ}
+		fatal: branch copy failed
+		EOF
+		test_must_fail git branch -c branch branch/moved 2>err &&
+		test_cmp expect err
+	)
+'
+
+test_expect_success 'branch: moving branch with D/F conflict' '
+	test_when_finished "rm -rf repo" &&
+	git init repo &&
+	(
+		cd repo &&
+		test_commit A &&
+		git branch branch &&
+		git branch conflict &&
+		cat >expect <<-EOF &&
+		error: ${SQ}refs/heads/conflict${SQ} exists; cannot create ${SQ}refs/heads/conflict/moved${SQ}
+		fatal: branch rename failed
+		EOF
+		test_must_fail git branch -m branch conflict/moved 2>err &&
+		test_cmp expect err
 	)
 '
 
