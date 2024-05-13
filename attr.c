@@ -765,8 +765,8 @@ static struct attr_stack *read_attr_from_file(const char *path, unsigned flags)
 	return res;
 }
 
-static struct attr_stack *read_attr_from_buf(char *buf, const char *path,
-					     unsigned flags)
+static struct attr_stack *read_attr_from_buf(char *buf, size_t length,
+					     const char *path, unsigned flags)
 {
 	struct attr_stack *res;
 	char *sp;
@@ -774,6 +774,11 @@ static struct attr_stack *read_attr_from_buf(char *buf, const char *path,
 
 	if (!buf)
 		return NULL;
+	if (length >= ATTR_MAX_FILE_SIZE) {
+		warning(_("ignoring overly large gitattributes blob '%s'"), path);
+		free(buf);
+		return NULL;
+	}
 
 	CALLOC_ARRAY(res, 1);
 	for (sp = buf; *sp;) {
@@ -813,7 +818,7 @@ static struct attr_stack *read_attr_from_blob(struct index_state *istate,
 		return NULL;
 	}
 
-	return read_attr_from_buf(buf, path, flags);
+	return read_attr_from_buf(buf, sz, path, flags);
 }
 
 static struct attr_stack *read_attr_from_index(struct index_state *istate,
@@ -860,13 +865,7 @@ static struct attr_stack *read_attr_from_index(struct index_state *istate,
 		stack = read_attr_from_blob(istate, &istate->cache[sparse_dir_pos]->oid, relative_path, flags);
 	} else {
 		buf = read_blob_data_from_index(istate, path, &size);
-		if (!buf)
-			return NULL;
-		if (size >= ATTR_MAX_FILE_SIZE) {
-			warning(_("ignoring overly large gitattributes blob '%s'"), path);
-			return NULL;
-		}
-		stack = read_attr_from_buf(buf, path, flags);
+		stack = read_attr_from_buf(buf, size, path, flags);
 	}
 	return stack;
 }
@@ -1220,13 +1219,6 @@ static void compute_default_attr_source(struct object_id *attr_source)
 
 	if (!default_attr_source_tree_object_name && git_attr_tree) {
 		default_attr_source_tree_object_name = git_attr_tree;
-		ignore_bad_attr_tree = 1;
-	}
-
-	if (!default_attr_source_tree_object_name &&
-	    startup_info->have_repository &&
-	    is_bare_repository()) {
-		default_attr_source_tree_object_name = "HEAD";
 		ignore_bad_attr_tree = 1;
 	}
 
