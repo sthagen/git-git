@@ -4,6 +4,7 @@
 #include "environment.h"
 #include "exec-cmd.h"
 #include "gettext.h"
+#include "hex.h"
 #include "object-name.h"
 #include "refs.h"
 #include "repository.h"
@@ -340,6 +341,58 @@ int get_common_dir_noenv(struct strbuf *sb, const char *gitdir)
 	strbuf_release(&data);
 	strbuf_release(&path);
 	return ret;
+}
+
+static int validate_headref(const char *path)
+{
+	struct stat st;
+	char buffer[256];
+	const char *refname;
+	struct object_id oid;
+	int fd;
+	ssize_t len;
+
+	if (lstat(path, &st) < 0)
+		return -1;
+
+	/* Make sure it is a "refs/.." symlink */
+	if (S_ISLNK(st.st_mode)) {
+		len = readlink(path, buffer, sizeof(buffer)-1);
+		if (len >= 5 && !memcmp("refs/", buffer, 5))
+			return 0;
+		return -1;
+	}
+
+	/*
+	 * Anything else, just open it and try to see if it is a symbolic ref.
+	 */
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return -1;
+	len = read_in_full(fd, buffer, sizeof(buffer)-1);
+	close(fd);
+
+	if (len < 0)
+		return -1;
+	buffer[len] = '\0';
+
+	/*
+	 * Is it a symbolic ref?
+	 */
+	if (skip_prefix(buffer, "ref:", &refname)) {
+		while (isspace(*refname))
+			refname++;
+		if (starts_with(refname, "refs/"))
+			return 0;
+	}
+
+	/*
+	 * Is this a detached HEAD?
+	 */
+	if (get_oid_hex_any(buffer, &oid) != GIT_HASH_UNKNOWN)
+		return 0;
+
+	return -1;
 }
 
 /*
@@ -2046,10 +2099,11 @@ void create_reference_database(unsigned int ref_storage_format,
 			       const char *initial_branch, int quiet)
 {
 	struct strbuf err = STRBUF_INIT;
+	char *to_free = NULL;
 	int reinit = is_reinit();
 
 	repo_set_ref_storage_format(the_repository, ref_storage_format);
-	if (refs_init_db(get_main_ref_store(the_repository), 0, &err))
+	if (ref_store_create_on_disk(get_main_ref_store(the_repository), 0, &err))
 		die("failed to set up refs db: %s", err.buf);
 
 	/*
@@ -2060,7 +2114,8 @@ void create_reference_database(unsigned int ref_storage_format,
 		char *ref;
 
 		if (!initial_branch)
-			initial_branch = git_default_branch_name(quiet);
+			initial_branch = to_free =
+				repo_default_branch_name(the_repository, quiet);
 
 		ref = xstrfmt("refs/heads/%s", initial_branch);
 		if (check_refname_format(ref, 0) < 0)
@@ -2077,6 +2132,7 @@ void create_reference_database(unsigned int ref_storage_format,
 			initial_branch);
 
 	strbuf_release(&err);
+	free(to_free);
 }
 
 static int create_default_files(const char *template_path,

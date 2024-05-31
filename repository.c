@@ -14,10 +14,33 @@
 #include "sparse-index.h"
 #include "trace2.h"
 #include "promisor-remote.h"
+#include "refs.h"
 
 /* The main repository */
 static struct repository the_repo;
 struct repository *the_repository = &the_repo;
+
+/*
+ * An escape hatch: if we hit a bug in the production code that fails
+ * to set an appropriate hash algorithm (most likely to happen when
+ * running outside a repository), we can tell the user who reported
+ * the crash to set the environment variable to "sha1" (all lowercase)
+ * to revert to the historical behaviour of defaulting to SHA-1.
+ */
+static void set_default_hash_algo(struct repository *repo)
+{
+	const char *hash_name;
+	int algo;
+
+	hash_name = getenv("GIT_TEST_DEFAULT_HASH_ALGO");
+	if (!hash_name)
+		return;
+	algo = hash_algo_by_name(hash_name);
+	if (algo == GIT_HASH_UNKNOWN)
+		return;
+
+	repo_set_hash_algo(repo, algo);
+}
 
 void initialize_repository(struct repository *repo)
 {
@@ -28,24 +51,26 @@ void initialize_repository(struct repository *repo)
 	index_state_init(repo->index, repo);
 
 	/*
-	 * Unfortunately, we need to keep this hack around for the time being:
+	 * When a command runs inside a repository, it learns what
+	 * hash algorithm is in use from the repository, but some
+	 * commands are designed to work outside a repository, yet
+	 * they want to access the_hash_algo, if only for the length
+	 * of the hashed value to see if their input looks like a
+	 * plausible hash value.
 	 *
-	 *   - Not setting up the hash algorithm for `the_repository` leads to
-	 *     crashes because `the_hash_algo` is a macro that expands to
-	 *     `the_repository->hash_algo`. So if Git commands try to access
-	 *     `the_hash_algo` without a Git directory we crash.
+	 * We are in the process of identifying such code paths and
+	 * giving them an appropriate default individually; any
+	 * unconverted code paths that try to access the_hash_algo
+	 * will thus fail.  The end-users however have an escape hatch
+	 * to set GIT_TEST_DEFAULT_HASH_ALGO environment variable to
+	 * "sha1" to get back the old behaviour of defaulting to SHA-1.
 	 *
-	 *   - Setting up the hash algorithm to be SHA1 by default breaks other
-	 *     commands when running with SHA256.
-	 *
-	 * This is another point in case why having global state is a bad idea.
-	 * Eventually, we should remove this hack and stop setting the hash
-	 * algorithm in this function altogether. Instead, it should only ever
-	 * be set via our repository setup procedures. But that requires more
-	 * work.
+	 * This escape hatch is deliberately kept unadvertised, so
+	 * that they see crashes and we can get a report before
+	 * telling them about it.
 	 */
 	if (repo == the_repository)
-		repo_set_hash_algo(repo, GIT_HASH_SHA1);
+		set_default_hash_algo(repo);
 }
 
 static void expand_base_dir(char **out, const char *in,
@@ -289,6 +314,9 @@ static void repo_clear_path_cache(struct repo_path_cache *cache)
 
 void repo_clear(struct repository *repo)
 {
+	struct hashmap_iter iter;
+	struct strmap_entry *e;
+
 	FREE_AND_NULL(repo->gitdir);
 	FREE_AND_NULL(repo->commondir);
 	FREE_AND_NULL(repo->graft_file);
@@ -328,6 +356,14 @@ void repo_clear(struct repository *repo)
 		remote_state_clear(repo->remote_state);
 		FREE_AND_NULL(repo->remote_state);
 	}
+
+	strmap_for_each_entry(&repo->submodule_ref_stores, &iter, e)
+		ref_store_release(e->value);
+	strmap_clear(&repo->submodule_ref_stores, 1);
+
+	strmap_for_each_entry(&repo->worktree_ref_stores, &iter, e)
+		ref_store_release(e->value);
+	strmap_clear(&repo->worktree_ref_stores, 1);
 
 	repo_clear_path_cache(&repo->cached_paths);
 }
