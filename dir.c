@@ -30,6 +30,13 @@
 #include "symlinks.h"
 #include "trace2.h"
 #include "tree.h"
+#include "hex.h"
+
+ /*
+  * The maximum size of a pattern/exclude file. If the file exceeds this size
+  * we will ignore it.
+  */
+#define PATTERN_MAX_FILE_SIZE (100 * 1024 * 1024)
 
 /*
  * Tells read_directory_recursive how a file or directory should be treated.
@@ -726,6 +733,17 @@ static char *dup_and_filter_pattern(const char *pattern)
 	return result;
 }
 
+static void clear_pattern_entry_hashmap(struct hashmap *map)
+{
+	struct hashmap_iter iter;
+	struct pattern_entry *entry;
+
+	hashmap_for_each_entry(map, &iter, entry, ent) {
+		free(entry->pattern);
+	}
+	hashmap_clear_and_free(map, struct pattern_entry, ent);
+}
+
 static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern *given)
 {
 	struct pattern_entry *translated;
@@ -799,6 +817,8 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 
 	if (given->patternlen > 2 &&
 	    !strcmp(given->pattern + given->patternlen - 2, "/*")) {
+		struct pattern_entry *old;
+
 		if (!(given->flags & PATTERN_FLAG_NEGATIVE)) {
 			/* Not a cone pattern. */
 			warning(_("unrecognized pattern: '%s'"), given->pattern);
@@ -824,7 +844,11 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 		}
 
 		hashmap_add(&pl->parent_hashmap, &translated->ent);
-		hashmap_remove(&pl->recursive_hashmap, &translated->ent, &data);
+		old = hashmap_remove_entry(&pl->recursive_hashmap, translated, ent, &data);
+		if (old) {
+			free(old->pattern);
+			free(old);
+		}
 		free(data);
 		return;
 	}
@@ -855,8 +879,8 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 
 clear_hashmaps:
 	warning(_("disabling cone pattern matching"));
-	hashmap_clear_and_free(&pl->parent_hashmap, struct pattern_entry, ent);
-	hashmap_clear_and_free(&pl->recursive_hashmap, struct pattern_entry, ent);
+	clear_pattern_entry_hashmap(&pl->recursive_hashmap);
+	clear_pattern_entry_hashmap(&pl->parent_hashmap);
 	pl->use_cone_patterns = 0;
 }
 
@@ -908,12 +932,7 @@ void add_pattern(const char *string, const char *base,
 	int nowildcardlen;
 
 	parse_path_pattern(&string, &patternlen, &flags, &nowildcardlen);
-	if (flags & PATTERN_FLAG_MUSTBEDIR) {
-		FLEXPTR_ALLOC_MEM(pattern, pattern, string, patternlen);
-	} else {
-		pattern = xmalloc(sizeof(*pattern));
-		pattern->pattern = string;
-	}
+	FLEX_ALLOC_MEM(pattern, pattern, string, patternlen);
 	pattern->patternlen = patternlen;
 	pattern->nowildcardlen = nowildcardlen;
 	pattern->base = base;
@@ -955,9 +974,8 @@ void clear_pattern_list(struct pattern_list *pl)
 	for (i = 0; i < pl->nr; i++)
 		free(pl->patterns[i]);
 	free(pl->patterns);
-	free(pl->filebuf);
-	hashmap_clear_and_free(&pl->recursive_hashmap, struct pattern_entry, ent);
-	hashmap_clear_and_free(&pl->parent_hashmap, struct pattern_entry, ent);
+	clear_pattern_entry_hashmap(&pl->recursive_hashmap);
+	clear_pattern_entry_hashmap(&pl->parent_hashmap);
 
 	memset(pl, 0, sizeof(*pl));
 }
@@ -1148,7 +1166,14 @@ static int add_patterns(const char *fname, const char *base, int baselen,
 		}
 	}
 
+	if (size > PATTERN_MAX_FILE_SIZE) {
+		warning("ignoring excessively large pattern file: %s", fname);
+		free(buf);
+		return -1;
+	}
+
 	add_patterns_from_buffer(buf, size, base, baselen, pl);
+	free(buf);
 	return 0;
 }
 
@@ -1156,16 +1181,15 @@ static int add_patterns_from_buffer(char *buf, size_t size,
 				    const char *base, int baselen,
 				    struct pattern_list *pl)
 {
+	char *orig = buf;
 	int i, lineno = 1;
 	char *entry;
 
 	hashmap_init(&pl->recursive_hashmap, pl_hashmap_cmp, NULL, 0);
 	hashmap_init(&pl->parent_hashmap, pl_hashmap_cmp, NULL, 0);
 
-	pl->filebuf = buf;
-
 	if (skip_utf8_bom(&buf, size))
-		size -= buf - pl->filebuf;
+		size -= buf - orig;
 
 	entry = buf;
 
@@ -1204,7 +1228,15 @@ int add_patterns_from_blob_to_list(
 	if (r != 1)
 		return r;
 
+	if (size > PATTERN_MAX_FILE_SIZE) {
+		warning("ignoring excessively large pattern blob: %s",
+			oid_to_hex(oid));
+		free(buf);
+		return -1;
+	}
+
 	add_patterns_from_buffer(buf, size, base, baselen, pl);
+	free(buf);
 	return 0;
 }
 
