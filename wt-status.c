@@ -126,6 +126,7 @@ void status_printf(struct wt_status *s, const char *color,
 	va_end(ap);
 }
 
+__attribute__((format (printf, 3, 4)))
 static void status_printf_more(struct wt_status *s, const char *color,
 			       const char *fmt, ...)
 {
@@ -2408,7 +2409,7 @@ static void wt_porcelain_v2_print_unmerged_entry(
 		int mode;
 		struct object_id oid;
 	} stages[3];
-	char *key;
+	const char *key;
 	char submodule_token[5];
 	char unmerged_prefix = 'u';
 	char eol_char = s->null_termination ? '\0' : '\n';

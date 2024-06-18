@@ -221,7 +221,8 @@ static struct reftable_reader **stack_copy_readers(struct reftable_stack *st,
 	return cur;
 }
 
-static int reftable_stack_reload_once(struct reftable_stack *st, char **names,
+static int reftable_stack_reload_once(struct reftable_stack *st,
+				      const char **names,
 				      int reuse_open)
 {
 	size_t cur_len = !st->merged ? 0 : st->merged->stack_len;
@@ -239,7 +240,7 @@ static int reftable_stack_reload_once(struct reftable_stack *st, char **names,
 
 	while (*names) {
 		struct reftable_reader *rd = NULL;
-		char *name = *names++;
+		const char *name = *names++;
 
 		/* this is linear; we assume compaction keeps the number of
 		   tables under control so this is not quadratic. */
@@ -278,10 +279,8 @@ static int reftable_stack_reload_once(struct reftable_stack *st, char **names,
 
 	new_tables = NULL;
 	st->readers_len = new_readers_len;
-	if (st->merged) {
-		merged_table_release(st->merged);
+	if (st->merged)
 		reftable_merged_table_free(st->merged);
-	}
 	if (st->readers) {
 		reftable_free(st->readers);
 	}
@@ -371,7 +370,7 @@ static int reftable_stack_reload_maybe_reuse(struct reftable_stack *st,
 				goto out;
 		}
 
-		err = reftable_stack_reload_once(st, names, reuse_open);
+		err = reftable_stack_reload_once(st, (const char **) names, reuse_open);
 		if (!err)
 			break;
 		if (err != REFTABLE_NOT_EXIST_ERROR)
@@ -385,7 +384,8 @@ static int reftable_stack_reload_maybe_reuse(struct reftable_stack *st,
 		err = read_lines(st->list_file, &names_after);
 		if (err < 0)
 			goto out;
-		if (names_equal(names_after, names)) {
+		if (names_equal((const char **) names_after,
+				(const char **) names)) {
 			err = REFTABLE_NOT_EXIST_ERROR;
 			goto out;
 		}
@@ -987,10 +987,8 @@ static int stack_write_compact(struct reftable_stack *st,
 
 done:
 	reftable_iterator_destroy(&it);
-	if (mt) {
-		merged_table_release(mt);
+	if (mt)
 		reftable_merged_table_free(mt);
-	}
 	reftable_ref_record_release(&ref);
 	reftable_log_record_release(&log);
 	st->stats.entries_written += entries;
