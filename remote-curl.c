@@ -1,3 +1,5 @@
+#define USE_THE_REPOSITORY_VARIABLE
+
 #include "git-compat-util.h"
 #include "git-curl-compat.h"
 #include "config.h"
@@ -1574,7 +1576,7 @@ int cmd_main(int argc, const char **argv)
 	if (argc > 2) {
 		end_url_with_slash(&url, argv[2]);
 	} else {
-		end_url_with_slash(&url, remote->url[0]);
+		end_url_with_slash(&url, remote->url.v[0]);
 	}
 
 	http_init(remote, url.buf, 0);
