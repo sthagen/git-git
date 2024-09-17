@@ -65,6 +65,9 @@ UI, Workflows & Features
    to discourage its use by interactive users.  Add documentation to
    help tool writers.
 
+ * "git apply --3way" learned to take "--ours" and other options.
+
+
 Performance, Internal Implementation, Development Support etc.
 --------------------------------------------------------------
 
@@ -132,6 +135,10 @@ Performance, Internal Implementation, Development Support etc.
 
  * "git cat-file" works well with the sparse-index, and gets marked as
    such.
+
+ * CI started failing completely for linux32 jobs, as the step to
+   upload failed test directory uses GitHub actions that is deprecated
+   and is now disabled.
 
 
 Fixes since v2.46
@@ -241,3 +248,4 @@ Fixes since v2.46
  * Other code cleanup, docfix, build fix, etc.
    (merge be10ac7037 jc/mailinfo-header-cleanup later to maint).
    (merge 9a36ea37ae jc/doc-skip-fetch-all-and-prefetch later to maint).
+   (merge 4460e052e0 jc/range-diff-lazy-setup later to maint).
