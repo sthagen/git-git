@@ -2317,12 +2317,9 @@ const char *diff_get_color(int diff_use_color, enum color_diff ix)
 
 const char *diff_line_prefix(struct diff_options *opt)
 {
-	struct strbuf *msgbuf;
-	if (!opt->output_prefix)
-		return "";
-
-	msgbuf = opt->output_prefix(opt, opt->output_prefix_data);
-	return msgbuf->buf;
+	return opt->output_prefix ?
+		opt->output_prefix(opt, opt->output_prefix_data) :
+		"";
 }
 
 static unsigned long sane_truncate_line(char *line, unsigned long len)
@@ -5400,7 +5397,6 @@ static int diff_opt_line_prefix(const struct option *opt,
 
 	BUG_ON_OPT_NEG(unset);
 	options->line_prefix = optarg;
-	options->line_prefix_length = strlen(options->line_prefix);
 	graph_setup_line_prefix(options);
 	return 0;
 }
@@ -5983,11 +5979,18 @@ void diff_free_filepair(struct diff_filepair *p)
 	free(p);
 }
 
-void diff_free_queue(struct diff_queue_struct *q)
+void diff_queue_init(struct diff_queue_struct *q)
+{
+	struct diff_queue_struct blank = DIFF_QUEUE_INIT;
+	memcpy(q, &blank, sizeof(*q));
+}
+
+void diff_queue_clear(struct diff_queue_struct *q)
 {
 	for (int i = 0; i < q->nr; i++)
 		diff_free_filepair(q->queue[i]);
 	free(q->queue);
+	diff_queue_init(q);
 }
 
 const char *diff_aligned_abbrev(const struct object_id *oid, int len)
@@ -6551,8 +6554,7 @@ int diff_flush_patch_id(struct diff_options *options, struct object_id *oid, int
 	struct diff_queue_struct *q = &diff_queued_diff;
 	int result = diff_get_patch_id(options, oid, diff_header_only);
 
-	diff_free_queue(q);
-	DIFF_QUEUE_CLEAR(q);
+	diff_queue_clear(q);
 
 	return result;
 }
@@ -6835,8 +6837,7 @@ void diff_flush(struct diff_options *options)
 	}
 
 free_queue:
-	diff_free_queue(q);
-	DIFF_QUEUE_CLEAR(q);
+	diff_queue_clear(q);
 	diff_free(options);
 
 	/*
@@ -6867,9 +6868,7 @@ static void diffcore_apply_filter(struct diff_options *options)
 {
 	int i;
 	struct diff_queue_struct *q = &diff_queued_diff;
-	struct diff_queue_struct outq;
-
-	DIFF_QUEUE_CLEAR(&outq);
+	struct diff_queue_struct outq = DIFF_QUEUE_INIT;
 
 	if (!options->filter)
 		return;
@@ -6962,8 +6961,7 @@ static void diffcore_skip_stat_unmatch(struct diff_options *diffopt)
 {
 	int i;
 	struct diff_queue_struct *q = &diff_queued_diff;
-	struct diff_queue_struct outq;
-	DIFF_QUEUE_CLEAR(&outq);
+	struct diff_queue_struct outq = DIFF_QUEUE_INIT;
 
 	for (i = 0; i < q->nr; i++) {
 		struct diff_filepair *p = q->queue[i];
