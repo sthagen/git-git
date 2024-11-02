@@ -30,7 +30,7 @@ static int connection_fatally_broken(int error)
 
 static int connection_closed(int error)
 {
-	return (error == ECONNRESET);
+	return error == ECONNRESET || error == ECONNABORTED;
 }
 
 static int connection_fatally_broken(int error)
@@ -189,7 +189,8 @@ int cmd_credential_cache(int argc,
 
 #else
 
-int cmd_credential_cache(int argc, const char **argv, const char *prefix)
+int cmd_credential_cache(int argc, const char **argv, const char *prefix,
+			 struct repository *repo UNUSED)
 {
 	const char * const usage[] = {
 		"git credential-cache [options] <action>",
