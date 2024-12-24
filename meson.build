@@ -201,6 +201,16 @@ if get_option('sane_tool_path') != ''
   script_environment.prepend('PATH', get_option('sane_tool_path'))
 endif
 
+# The environment used by GIT-VERSION-GEN. Note that we explicitly override
+# environment variables that might be set by the user. This is by design so
+# that we always use whatever Meson has configured instead of what is present
+# in the environment.
+version_gen_environment = script_environment
+version_gen_environment.set('GIT_BUILT_FROM_COMMIT', get_option('built_from_commit'))
+version_gen_environment.set('GIT_DATE', get_option('build_date'))
+version_gen_environment.set('GIT_USER_AGENT', get_option('user_agent'))
+version_gen_environment.set('GIT_VERSION', get_option('version'))
+
 compiler = meson.get_compiler('c')
 
 libgit_sources = [
@@ -712,7 +722,6 @@ else
   build_options_config.set('SANITIZE_ADDRESS', '')
 endif
 if get_option('b_sanitize').contains('leak')
-  libgit_c_args += '-DSUPPRESS_ANNOTATED_LEAKS'
   build_options_config.set('SANITIZE_LEAK', 'YesCompiledWithIt')
 else
   build_options_config.set('SANITIZE_LEAK', '')
@@ -740,7 +749,7 @@ endif
 # features. It is optional if you want to neither execute tests nor use any of
 # these optional features.
 perl_required = get_option('perl')
-if get_option('tests')
+if get_option('tests') or get_option('gitweb').enabled()
   perl_required = true
 endif
 
@@ -1485,6 +1494,7 @@ git_version_file = custom_target(
   ],
   input: meson.current_source_dir() / 'GIT-VERSION-FILE.in',
   output: 'GIT-VERSION-FILE',
+  env: version_gen_environment,
   build_always_stale: true,
 )
 
@@ -1501,6 +1511,7 @@ version_def_h = custom_target(
   # Depend on GIT-VERSION-FILE so that we don't always try to rebuild this
   # target for the same commit.
   depends: [git_version_file],
+  env: version_gen_environment,
 )
 
 # Build a separate library for "version.c" so that we do not have to rebuild
@@ -1544,6 +1555,7 @@ if host_machine.system() == 'windows'
     input: meson.current_source_dir() / 'git.rc.in',
     output: 'git.rc',
     depends: [git_version_file],
+    env: version_gen_environment,
   )
 
   common_main_sources += import('windows').compile_resources(git_rc,
@@ -1874,7 +1886,15 @@ if intl.found()
   subdir('po')
 endif
 subdir('contrib')
-subdir('gitweb')
+
+# Gitweb requires Perl, so we disable the auto-feature if Perl was not found.
+# We make sure further up that Perl is required in case the gitweb option is
+# enabled.
+gitweb_option = get_option('gitweb').disable_auto_if(not perl.found())
+if gitweb_option.enabled()
+  subdir('gitweb')
+endif
+
 subdir('templates')
 
 # Everything but the bin-wrappers need to come before this target such that we
@@ -1893,6 +1913,7 @@ summary({
   'curl': curl.found(),
   'expat': expat.found(),
   'gettext': intl.found(),
+  'gitweb': gitweb_option.enabled(),
   'https': https_backend,
   'iconv': iconv.found(),
   'pcre2': pcre2.found(),

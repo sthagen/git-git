@@ -591,13 +591,6 @@ include shared.mak
 #
 #        Disable -pedantic compilation.
 
-GIT-VERSION-FILE: FORCE
-	@OLD=$$(cat $@ 2>/dev/null || :) && \
-	$(SHELL_PATH) ./GIT-VERSION-GEN "$(shell pwd)" GIT-VERSION-FILE.in $@ && \
-	NEW=$$(cat $@ 2>/dev/null || :) && \
-	if test "$$OLD" != "$$NEW"; then echo "$$NEW" >&2; fi
--include GIT-VERSION-FILE
-
 # Set our default configuration.
 #
 # Among the variables below, these:
@@ -1344,8 +1337,8 @@ THIRD_PARTY_SOURCES += sha1dc/%
 THIRD_PARTY_SOURCES += $(UNIT_TEST_DIR)/clar/%
 THIRD_PARTY_SOURCES += $(UNIT_TEST_DIR)/clar/clar/%
 
-CLAR_TEST_SUITES += ctype
-CLAR_TEST_SUITES += strvec
+CLAR_TEST_SUITES += u-ctype
+CLAR_TEST_SUITES += u-strvec
 CLAR_TEST_PROG = $(UNIT_TEST_BIN)/unit-tests$(X)
 CLAR_TEST_OBJS = $(patsubst %,$(UNIT_TEST_DIR)/%.o,$(CLAR_TEST_SUITES))
 CLAR_TEST_OBJS += $(UNIT_TEST_DIR)/clar/clar.o
@@ -1465,6 +1458,18 @@ ifdef DEVELOPER
 include config.mak.dev
 endif
 
+GIT-VERSION-FILE: FORCE
+	@OLD=$$(cat $@ 2>/dev/null || :) && \
+	$(call version_gen,"$(shell pwd)",GIT-VERSION-FILE.in,$@) && \
+	NEW=$$(cat $@ 2>/dev/null || :) && \
+	if test "$$OLD" != "$$NEW"; then echo "$$NEW" >&2; fi
+
+# We need to set GIT_VERSION_OVERRIDE before including the version file as
+# otherwise any user-provided value for GIT_VERSION would have been overridden
+# already.
+GIT_VERSION_OVERRIDE := $(GIT_VERSION)
+-include GIT-VERSION-FILE
+
 # what 'all' will build and 'install' will install in gitexecdir,
 # excluding programs for built-in commands
 ALL_PROGRAMS = $(PROGRAMS) $(SCRIPTS)
@@ -1490,7 +1495,6 @@ ifneq ($(filter undefined,$(SANITIZERS)),)
 BASIC_CFLAGS += -DSHA1DC_FORCE_ALIGNED_ACCESS
 endif
 ifneq ($(filter leak,$(SANITIZERS)),)
-BASIC_CFLAGS += -DSUPPRESS_ANNOTATED_LEAKS
 BASIC_CFLAGS += -O0
 SANITIZE_LEAK = YesCompiledWithIt
 endif
@@ -2512,8 +2516,7 @@ pager.sp pager.s pager.o: EXTRA_CPPFLAGS = \
 	-DPAGER_ENV='$(PAGER_ENV_CQ_SQ)'
 
 version-def.h: version-def.h.in GIT-VERSION-GEN GIT-VERSION-FILE GIT-USER-AGENT
-	$(QUIET_GEN)GIT_USER_AGENT="$(GIT_USER_AGENT)" $(SHELL_PATH) ./GIT-VERSION-GEN "$(shell pwd)" $< $@+
-	@if cmp $@+ $@ >/dev/null 2>&1; then $(RM) $@+; else mv $@+ $@; fi
+	$(QUIET_GEN)$(call version_gen,"$(shell pwd)",$<,$@)
 
 version.sp version.s version.o: version-def.h
 
@@ -2554,8 +2557,7 @@ $(SCRIPT_SH_GEN) $(SCRIPT_LIB) : % : %.sh generate-script.sh GIT-BUILD-OPTIONS G
 	mv $@+ $@
 
 git.rc: git.rc.in GIT-VERSION-GEN GIT-VERSION-FILE
-	$(QUIET_GEN)$(SHELL_PATH) ./GIT-VERSION-GEN "$(shell pwd)" $< $@+
-	@if cmp $@+ $@ >/dev/null 2>&1; then $(RM) $@+; else mv $@+ $@; fi
+	$(QUIET_GEN)$(call version_gen,"$(shell pwd)",$<,$@)
 
 git.res: git.rc GIT-PREFIX
 	$(QUIET_RC)$(RC) -i $< -o $@
