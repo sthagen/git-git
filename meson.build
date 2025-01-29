@@ -708,7 +708,6 @@ if get_option('warning_level') in ['2','3', 'everything'] and compiler.get_argum
     # These are disabled because we have these all over the place.
     '-Wno-empty-body',
     '-Wno-missing-field-initializers',
-    '-Wno-sign-compare',
   ]
     if compiler.has_argument(cflag)
       libgit_c_args += cflag
@@ -1879,7 +1878,6 @@ endforeach
 if intl.found()
   subdir('po')
 endif
-subdir('contrib')
 
 # Gitweb requires Perl, so we disable the auto-feature if Perl was not found.
 # We make sure further up that Perl is required in case the gitweb option is
@@ -1905,6 +1903,8 @@ subdir('bin-wrappers')
 if get_option('docs') != []
   subdir('Documentation')
 endif
+
+subdir('contrib')
 
 foreach key, value : {
   'DIFF': diff.full_path(),
