@@ -925,7 +925,7 @@ static void fill_branch_base(struct rebase_options *options,
 				 options->orig_head, &merge_bases) < 0)
 		exit(128);
 	if (!merge_bases || merge_bases->next)
-		oidcpy(branch_base, null_oid());
+		oidcpy(branch_base, null_oid(the_hash_algo));
 	else
 		oidcpy(branch_base, &merge_bases->item->object.oid);
 
@@ -1843,7 +1843,7 @@ int cmd_rebase(int argc,
 	strbuf_addf(&msg, "%s (start): checkout %s",
 		    options.reflog_action, options.onto_name);
 	ropts.oid = &options.onto->object.oid;
-	ropts.orig_head = &options.orig_head->object.oid,
+	ropts.orig_head = &options.orig_head->object.oid;
 	ropts.flags = RESET_HEAD_DETACH | RESET_ORIG_HEAD |
 			RESET_HEAD_RUN_POST_CHECKOUT_HOOK;
 	ropts.head_msg = msg.buf;
