@@ -28,6 +28,29 @@ UI, Workflows & Features
    this message has been turned into an advice message that can be
    turned off.
 
+ * "git rev-list" learns machine-parsable output format that delimits
+   each field with NUL.
+
+ * "git maintenance" learns a new task to expire reflog entries.
+
+ * Auth-related (and unrelated) error handling in send-email has been
+   made more robust.
+
+ * Updating multiple references have only been possible in all-or-none
+   fashion with transactions, but it can be more efficient to batch
+   multiple updates even when some of them are allowed to fail in a
+   best-effort manner.  A new "best effort batches of updates" mode
+   has been introduced.
+
+ * "git help --build-options" reports SHA-1 and SHA-256 backends used
+   in the build.
+
+ * "git cat-file --batch" and friends learned to allow "--filter=" to
+   omit certain objects, just like the transport layer does.
+
+ * "git blame --porcelain" mode now talks about unblamable lines and
+   lines that are blamed to an ignored commit.
+
 
 Performance, Internal Implementation, Development Support etc.
 --------------------------------------------------------------
@@ -70,6 +93,22 @@ Performance, Internal Implementation, Development Support etc.
 
  * The object layer has been updated to take an explicit repository
    instance as a parameter in more code paths.
+
+ * Some warnings from "-Wsign-compare" for builtin/rm.c have been
+   squelched.
+
+ * A few traditional unit tests have been rewritten to use the clar
+   framework.
+
+ * Some warnings from "-Wsign-compare" for pathspec.c have been
+   squelched.
+
+ * "make test" used to have a hard dependency on (basic) Perl; tests
+   have been rewritten help environment with NO_PERL test the build as
+   much as possible.
+
+ * Remove remnants of the recursive merge strategy backend, which was
+   superseded by the ort merge strategy.
 
 
 Fixes since v2.49
@@ -134,6 +173,28 @@ Fixes since v2.49
    which has been corrected..
    (merge d3b5832381 pw/custom-conflict-marker-size-for-merge-related-docs later to maint).
 
+ * Squelch false-positive from sparse.
+   (merge da87b58014 dd/sparse-glibc-workaround later to maint).
+
+ * Adjust to the deprecation of use of Ubuntu 20.04 GitHub Actions CI.
+   (merge 832d9f6d0b js/ci-github-update-ubuntu later to maint).
+
+ * Work around CI breakage due to fedora base image getting updated.
+   (merge 8a471a663b js/ci-fedora-gawk later to maint).
+
+ * A ref transaction corner case fix.
+   (merge b9fadeead7 jt/ref-transaction-abort-fix later to maint).
+
+ * Random build fixes.
+   (merge 85e1d6819f ps/misc-build-fixes later to maint).
+
+ * "git fetch [<remote>]" with only the configured fetch refspec
+   should be the only thing to update refs/remotes/<remote>/HEAD,
+   but the code was overly eager to do so in other cases.
+
+ * Incorrect sorting of refs with bytes with high-bit set on platforms
+   with signed char led to a BUG, which has been corrected.
+
  * Other code cleanup, docfix, build fix, etc.
    (merge 227c4f33a0 ja/doc-block-delimiter-markup-fix later to maint).
    (merge 2bfd3b3685 ab/decorate-code-cleanup later to maint).
@@ -153,3 +214,4 @@ Fixes since v2.49
    (merge ee8edb7156 dk/vimdiff-doc-fix later to maint).
    (merge 107d889303 md/t1403-path-is-file later to maint).
    (merge abd4192b07 js/comma-semicolon-confusion later to maint).
+   (merge 27b7264206 ab/environment-clean-header later to maint).
