@@ -14,7 +14,7 @@
 #include "refs.h"
 #include "refspec.h"
 #include "object-name.h"
-#include "object-store-ll.h"
+#include "object-store.h"
 #include "oidset.h"
 #include "oid-array.h"
 #include "commit.h"
@@ -2352,8 +2352,14 @@ int cmd_fetch(int argc,
 		OPT_SET_INT_F(0, "refetch", &refetch,
 			      N_("re-fetch without negotiating common commits"),
 			      1, PARSE_OPT_NONEG),
-		{ OPTION_STRING, 0, "submodule-prefix", &submodule_prefix, N_("dir"),
-			   N_("prepend this to submodule path output"), PARSE_OPT_HIDDEN },
+		{
+			.type = OPTION_STRING,
+			.long_name = "submodule-prefix",
+			.value = &submodule_prefix,
+			.argh = N_("dir"),
+			.help = N_("prepend this to submodule path output"),
+			.flags = PARSE_OPT_HIDDEN,
+		},
 		OPT_CALLBACK_F(0, "recurse-submodules-default",
 			   &recurse_submodules_default, N_("on-demand"),
 			   N_("default for recursive fetching of submodules "

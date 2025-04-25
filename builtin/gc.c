@@ -28,8 +28,7 @@
 #include "commit.h"
 #include "commit-graph.h"
 #include "packfile.h"
-#include "object-file.h"
-#include "object-store-ll.h"
+#include "object-store.h"
 #include "pack.h"
 #include "pack-objects.h"
 #include "path.h"
@@ -425,8 +424,13 @@ static uint64_t total_ram(void)
 #if defined(HAVE_SYSINFO)
 	struct sysinfo si;
 
-	if (!sysinfo(&si))
-		return si.totalram;
+	if (!sysinfo(&si)) {
+		uint64_t total = si.totalram;
+
+		if (si.mem_unit > 1)
+			total *= (uint64_t)si.mem_unit;
+		return total;
+	}
 #elif defined(HAVE_BSD_SYSCTL) && (defined(HW_MEMSIZE) || defined(HW_PHYSMEM))
 	int64_t physical_memory;
 	int mib[2];
@@ -744,12 +748,18 @@ struct repository *repo UNUSED)
 	int ret;
 	struct option builtin_gc_options[] = {
 		OPT__QUIET(&quiet, N_("suppress progress reporting")),
-		{ OPTION_STRING, 0, "prune", &prune_expire_arg, N_("date"),
-			N_("prune unreferenced objects"),
-			PARSE_OPT_OPTARG, NULL, (intptr_t)prune_expire_arg },
+		{
+			.type = OPTION_STRING,
+			.long_name = "prune",
+			.value = &prune_expire_arg,
+			.argh = N_("date"),
+			.help = N_("prune unreferenced objects"),
+			.flags = PARSE_OPT_OPTARG,
+			.defval = (intptr_t)prune_expire_arg,
+		},
 		OPT_BOOL(0, "cruft", &cfg.cruft_packs, N_("pack unreferenced objects separately")),
-		OPT_MAGNITUDE(0, "max-cruft-size", &cfg.max_cruft_size,
-			      N_("with --cruft, limit the size of new cruft packs")),
+		OPT_UNSIGNED(0, "max-cruft-size", &cfg.max_cruft_size,
+			     N_("with --cruft, limit the size of new cruft packs")),
 		OPT_BOOL(0, "aggressive", &aggressive, N_("be more thorough (increased runtime)")),
 		OPT_BOOL_F(0, "auto", &opts.auto_flag, N_("enable auto-gc mode"),
 			   PARSE_OPT_NOCOMPLETE),
@@ -2169,7 +2179,7 @@ static int launchctl_schedule_plist(const char *exec_path, enum schedule_priorit
 	}
 	strbuf_addstr(&plist, "</array>\n</dict>\n</plist>\n");
 
-	if (safe_create_leading_directories(filename))
+	if (safe_create_leading_directories(the_repository, filename))
 		die(_("failed to create directories for '%s'"), filename);
 
 	if ((long)lock_file_timeout_ms < 0 &&
@@ -2635,7 +2645,7 @@ static int systemd_timer_write_timer_file(enum schedule_priority schedule,
 
 	filename = xdg_config_home_systemd(local_timer_name);
 
-	if (safe_create_leading_directories(filename)) {
+	if (safe_create_leading_directories(the_repository, filename)) {
 		error(_("failed to create directories for '%s'"), filename);
 		goto error;
 	}
@@ -2708,7 +2718,7 @@ static int systemd_timer_write_service_template(const char *exec_path)
 	char *local_service_name = xstrfmt(SYSTEMD_UNIT_FORMAT, "", "service");
 
 	filename = xdg_config_home_systemd(local_service_name);
-	if (safe_create_leading_directories(filename)) {
+	if (safe_create_leading_directories(the_repository, filename)) {
 		error(_("failed to create directories for '%s'"), filename);
 		goto error;
 	}
