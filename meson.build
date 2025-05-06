@@ -70,9 +70,15 @@
 #      # Execute single test interactively such that features like `debug ()` work.
 #      $ meson test -i --test-args='-ix' t1400-update-ref
 #
-#   Test execution is parallelized by default and scales with the number of
-#   processor cores available. You can change the number of processes by passing
-#   the `-jN` flag to `meson test`.
+#      # Execute all benchmarks.
+#      $ meson test -i --benchmark
+#
+#      # Execute single benchmark.
+#      $ meson test -i --benchmark p0000-*
+#
+#   Test execution (but not benchmark execution) is parallelized by default and
+#   scales with the number of processor cores available. You can change the
+#   number of processes by passing the `-jN` flag to `meson test`.
 #
 # 4. Install the Git distribution. Again, this can be done via Meson, Ninja or
 #    Samurai:
@@ -235,6 +241,7 @@ git = find_program('git', dirs: program_path, native: true, required: false)
 sed = find_program('sed', dirs: program_path, native: true)
 shell = find_program('sh', dirs: program_path, native: true)
 tar = find_program('tar', dirs: program_path, native: true)
+time = find_program('time', dirs: program_path, required: get_option('benchmarks'))
 
 target_shell = find_program('sh', dirs: program_path, native: false)
 
@@ -668,6 +675,28 @@ builtin_sources = [
   'builtin/write-tree.c',
 ]
 
+third_party_excludes = [
+  ':!contrib',
+  ':!compat/inet_ntop.c',
+  ':!compat/inet_pton.c',
+  ':!compat/nedmalloc',
+  ':!compat/obstack.*',
+  ':!compat/poll',
+  ':!compat/regex',
+  ':!sha1collisiondetection',
+  ':!sha1dc',
+  ':!t/unit-tests/clar',
+  ':!t/t[0-9][0-9][0-9][0-9]*',
+  ':!xdiff',
+]
+
+headers_to_check = []
+if git.found() and fs.exists(meson.project_source_root() / '.git')
+  foreach header : run_command(git, '-C', meson.project_source_root(), 'ls-files', '--deduplicate', '*.h', third_party_excludes, check: true).stdout().split()
+    headers_to_check += header
+  endforeach
+endif
+
 if not get_option('breaking_changes')
   builtin_sources += 'builtin/pack-redundant.c'
 endif
@@ -699,11 +728,11 @@ builtin_sources += custom_target(
 # build options to our tests.
 build_options_config = configuration_data()
 build_options_config.set('GIT_INTEROP_MAKE_OPTS', '')
-build_options_config.set('GIT_PERF_LARGE_REPO', '')
+build_options_config.set_quoted('GIT_PERF_LARGE_REPO', get_option('benchmark_large_repo'))
 build_options_config.set('GIT_PERF_MAKE_COMMAND', '')
 build_options_config.set('GIT_PERF_MAKE_OPTS', '')
-build_options_config.set('GIT_PERF_REPEAT_COUNT', '')
-build_options_config.set('GIT_PERF_REPO', '')
+build_options_config.set_quoted('GIT_PERF_REPEAT_COUNT', get_option('benchmark_repeat_count').to_string())
+build_options_config.set_quoted('GIT_PERF_REPO', get_option('benchmark_repo'))
 build_options_config.set('GIT_TEST_CMP_USE_COPIED_CONTEXT', '')
 build_options_config.set('GIT_TEST_INDEX_VERSION', '')
 build_options_config.set('GIT_TEST_OPTS', '')
@@ -836,7 +865,7 @@ endif
 # features. It is optional if you want to neither execute tests nor use any of
 # these optional features.
 perl_required = get_option('perl')
-if get_option('gitweb').enabled() or 'netrc' in get_option('credential_helpers')
+if get_option('benchmarks').enabled() or get_option('gitweb').enabled() or 'netrc' in get_option('credential_helpers')
   perl_required = true
 endif
 
@@ -1079,10 +1108,6 @@ if compiler.has_header('alloca.h')
   libgit_c_args += '-DHAVE_ALLOCA_H'
 endif
 
-if compiler.has_header('sys/sysinfo.h')
-  libgit_c_args += '-DHAVE_SYSINFO'
-endif
-
 # Windows has libgen.h and a basename implementation, but we still need our own
 # implementation to threat things like drive prefixes specially.
 if host_machine.system() == 'windows' or not compiler.has_header('libgen.h')
@@ -1105,18 +1130,22 @@ if host_machine.system() == 'windows'
     networking_dependencies += winsock
   endif
 else
-  libresolv = compiler.find_library('resolv', required: false)
-  if libresolv.found()
-    networking_dependencies += libresolv
-  endif
+  networking_dependencies += [
+    compiler.find_library('nsl', required: false),
+    compiler.find_library('resolv', required: false),
+    compiler.find_library('socket', required: false),
+  ]
 endif
 libgit_dependencies += networking_dependencies
 
-foreach symbol : ['inet_ntop', 'inet_pton', 'strerror']
-  if not compiler.has_function(symbol, dependencies: networking_dependencies)
-    libgit_c_args += '-DNO_' + symbol.to_upper()
-  endif
-endforeach
+if host_machine.system() != 'windows'
+  foreach symbol : ['inet_ntop', 'inet_pton', 'hstrerror']
+    if not compiler.has_function(symbol, dependencies: networking_dependencies)
+      libgit_c_args += '-DNO_' + symbol.to_upper()
+      libgit_sources += 'compat/' + symbol + '.c'
+    endif
+  endforeach
+endif
 
 has_ipv6 = compiler.has_function('getaddrinfo', dependencies: networking_dependencies)
 if not has_ipv6
@@ -1152,11 +1181,6 @@ if compiler.has_function('socket', dependencies: networking_dependencies)
 else
   libgit_c_args += '-DNO_UNIX_SOCKETS'
   build_options_config.set('NO_UNIX_SOCKETS', '1')
-endif
-
-if not compiler.has_function('pread')
-  libgit_c_args += '-DNO_PREAD'
-  libgit_sources += 'compat/pread.c'
 endif
 
 if host_machine.system() == 'darwin'
@@ -1293,6 +1317,10 @@ if host_machine.system() != 'windows'
   endif
 endif
 
+if compiler.has_member('struct sysinfo', 'totalram', prefix: '#include <sys/sysinfo.h>')
+  libgit_c_args += '-DHAVE_SYSINFO'
+endif
+
 if compiler.has_member('struct stat', 'st_mtimespec.tv_nsec', prefix: '#include <sys/stat.h>')
   libgit_c_args += '-DUSE_ST_TIMESPEC'
 elif not compiler.has_member('struct stat', 'st_mtim.tv_nsec', prefix: '#include <sys/stat.h>')
@@ -1311,23 +1339,41 @@ if not compiler.has_member('struct passwd', 'pw_gecos', prefix: '#include <pwd.h
   libgit_c_args += '-DNO_GECOS_IN_PWENT'
 endif
 
+checkfuncs = {
+  'strcasestr' : ['strcasestr.c'],
+  'memmem' : ['memmem.c'],
+  'strlcpy' : ['strlcpy.c'],
+  'strtoull' : [],
+  'setenv' : ['setenv.c'],
+  'mkdtemp' : ['mkdtemp.c'],
+  'initgroups' : [],
+  'strtoumax' : ['strtoumax.c', 'strtoimax.c'],
+  'pread' : ['pread.c'],
+}
+
+if host_machine.system() == 'windows'
+  libgit_c_args += '-DUSE_WIN32_MMAP'
+else
+  checkfuncs += {
+    'mmap' : ['mmap.c'],
+    # provided by compat/mingw.c.
+    'unsetenv' : ['unsetenv.c'],
+    # provided by compat/mingw.c.
+    'getpagesize' : [],
+  }
+endif
+
+foreach func, impls : checkfuncs
+  if not compiler.has_function(func)
+    libgit_c_args += '-DNO_' + func.to_upper()
+    foreach impl : impls
+      libgit_sources += 'compat/' + impl
+    endforeach
+  endif
+endforeach
+
 if compiler.has_function('sync_file_range')
   libgit_c_args += '-DHAVE_SYNC_FILE_RANGE'
-endif
-
-if not compiler.has_function('strcasestr')
-  libgit_c_args += '-DNO_STRCASESTR'
-  libgit_sources += 'compat/strcasestr.c'
-endif
-
-if not compiler.has_function('memmem')
-  libgit_c_args += '-DNO_MEMMEM'
-  libgit_sources += 'compat/memmem.c'
-endif
-
-if not compiler.has_function('strlcpy')
-  libgit_c_args += '-DNO_STRLCPY'
-  libgit_sources += 'compat/strlcpy.c'
 endif
 
 if not compiler.has_function('strdup')
@@ -1335,53 +1381,15 @@ if not compiler.has_function('strdup')
   libgit_sources += 'compat/strdup.c'
 endif
 
-if not compiler.has_function('strtoumax')
-  libgit_c_args += '-DNO_STRTOUMAX'
-  libgit_sources += [
-    'compat/strtoumax.c',
-    'compat/strtoimax.c',
-  ]
-endif
-
-if not compiler.has_function('strtoull')
-  libgit_c_args += '-DNO_STRTOULL'
-endif
-
-if not compiler.has_function('setenv')
-  libgit_c_args += '-DNO_SETENV'
-  libgit_sources += 'compat/setenv.c'
-endif
-
 if not compiler.has_function('qsort')
   libgit_c_args += '-DINTERNAL_QSORT'
 endif
 libgit_sources += 'compat/qsort_s.c'
 
-# unsetenv is provided by compat/mingw.c.
-if host_machine.system() != 'windows' and not compiler.has_function('unsetenv')
-  libgit_c_args += '-DNO_UNSETENV'
-  libgit_sources += 'compat/unsetenv.c'
-endif
-
-if not compiler.has_function('mkdtemp')
-  libgit_c_args += '-DNO_MKDTEMP'
-  libgit_sources += 'compat/mkdtemp.c'
-endif
-
-if not compiler.has_function('initgroups')
-  libgit_c_args += '-DNO_INITGROUPS'
-endif
-
 if compiler.has_function('getdelim')
   libgit_c_args += '-DHAVE_GETDELIM'
 endif
 
-if host_machine.system() == 'windows'
-  libgit_c_args += '-DUSE_WIN32_MMAP'
-elif not compiler.has_function('mmap')
-  libgit_c_args += '-DNO_MMAP'
-  libgit_sources += 'compat/mmap.c'
-endif
 
 if compiler.has_function('clock_gettime')
   libgit_c_args += '-DHAVE_CLOCK_GETTIME'
@@ -2033,6 +2041,70 @@ endif
 
 subdir('contrib')
 
+exclude_from_check_headers = [
+  'compat/',
+  'unicode-width.h',
+]
+
+if sha1_backend != 'openssl'
+  exclude_from_check_headers += 'sha1/openssl.h'
+endif
+if sha256_backend != 'openssl'
+  exclude_from_check_headers += 'sha256/openssl.h'
+endif
+if sha256_backend != 'nettle'
+  exclude_from_check_headers += 'sha256/nettle.h'
+endif
+if sha256_backend != 'gcrypt'
+  exclude_from_check_headers += 'sha256/gcrypt.h'
+endif
+
+if headers_to_check.length() != 0 and compiler.get_argument_syntax() == 'gcc'
+  hco_targets = []
+  foreach h : headers_to_check
+    skip_header = false
+    foreach exclude : exclude_from_check_headers
+      if h.startswith(exclude)
+        skip_header = true
+        break
+      endif
+    endforeach
+
+    if skip_header
+      continue
+    endif
+
+    hcc = custom_target(
+      input: h,
+      output: h.underscorify() + 'cc',
+      command: [
+        shell,
+        '-c',
+        'echo \'#include "git-compat-util.h"\' > @OUTPUT@ && echo \'#include "' + h + '"\' >> @OUTPUT@'
+      ]
+    )
+
+    hco = custom_target(
+      input: hcc,
+      output: fs.replace_suffix(h.underscorify(), '.hco'),
+      command: [
+        compiler.cmd_array(),
+        libgit_c_args,
+        '-I', meson.project_source_root(),
+        '-I', meson.project_source_root() / 't/unit-tests',
+        '-o', '/dev/null',
+        '-c', '-xc',
+        '@INPUT@'
+      ]
+    )
+    hco_targets += hco
+  endforeach
+
+  # TODO: deprecate 'hdr-check' in lieu of 'check-headers' in Git 2.51+
+  hdr_check = alias_target('hdr-check', hco_targets)
+  alias_target('check-headers', hdr_check)
+endif
+
 foreach key, value : {
   'DIFF': diff.full_path(),
   'GIT_SOURCE_DIR': meson.project_source_root(),
@@ -2082,6 +2154,7 @@ meson.add_dist_script(
 )
 
 summary({
+  'benchmarks': get_option('tests') and perl.found() and time.found(),
   'curl': curl.found(),
   'expat': expat.found(),
   'gettext': intl.found(),
