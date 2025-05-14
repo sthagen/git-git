@@ -5,11 +5,6 @@
 
 . ${0%/*}/lib.sh
 
-case "$CI_OS_NAME" in
-windows*) cmd //c mklink //j t\\.prove "$(cygpath -aw "$cache_dir/.prove")";;
-*) ln -s "$cache_dir/.prove" t/.prove;;
-esac
-
 run_tests=t
 
 case "$jobname" in
@@ -56,6 +51,7 @@ case "$jobname" in
 		--warnlevel 2 --werror \
 		--wrap-mode nofallback \
 		-Dfuzzers=true \
+		-Dtest_output_directory="${TEST_OUTPUT_DIRECTORY:-$(pwd)/t}" \
 		$MESONFLAGS
 	group "Build" meson compile -C build --
 	if test -n "$run_tests"
