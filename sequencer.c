@@ -2636,9 +2636,12 @@ static int is_command(enum todo_command command, const char **bol)
 	const char nick = todo_command_info[command].c;
 	const char *p = *bol;
 
-	return (skip_prefix(p, str, &p) || (nick && *p++ == nick)) &&
-		(*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || !*p) &&
-		(*bol = p);
+	if ((skip_prefix(p, str, &p) || (nick && *p++ == nick)) &&
+	    (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || !*p)) {
+		*bol = p;
+		return 1;
+	}
+	return 0;
 }
 
 static int check_label_or_ref_arg(enum todo_command command, const char *arg)
@@ -5899,11 +5902,11 @@ static int make_script_with_merges(struct pretty_print_context *pp,
 
 		/* Create a label from the commit message */
 		strbuf_reset(&label_from_message);
-		if (skip_prefix(oneline.buf, "Merge ", &p1) &&
+		if (skip_prefix(oneline.buf, "# Merge ", &p1) &&
 		    (p1 = strchr(p1, '\'')) &&
 		    (p2 = strchr(++p1, '\'')))
 			strbuf_add(&label_from_message, p1, p2 - p1);
-		else if (skip_prefix(oneline.buf, "Merge pull request ",
+		else if (skip_prefix(oneline.buf, "# Merge pull request ",
 				     &p1) &&
 			 (p1 = strstr(p1, " from ")))
 			strbuf_addstr(&label_from_message, p1 + strlen(" from "));
@@ -5938,7 +5941,7 @@ static int make_script_with_merges(struct pretty_print_context *pp,
 
 			strbuf_addstr(&buf, label_oid(oid, label, &state));
 		}
-		strbuf_addf(&buf, " # %s", oneline.buf);
+		strbuf_addf(&buf, " %s", oneline.buf);
 
 		FLEX_ALLOC_STR(entry, string, buf.buf);
 		oidcpy(&entry->entry.oid, &commit->object.oid);
@@ -6020,7 +6023,7 @@ static int make_script_with_merges(struct pretty_print_context *pp,
 			else {
 				strbuf_reset(&oneline);
 				pretty_print_commit(pp, commit, &oneline);
-				strbuf_addf(out, "%s %s # %s\n",
+				strbuf_addf(out, "%s %s %s\n",
 					    cmd_reset, to, oneline.buf);
 			}
 		}
@@ -6088,8 +6091,14 @@ int sequencer_make_script(struct repository *r, struct strbuf *out, int argc,
 	git_config_get_string("rebase.instructionFormat", &format);
 	if (!format || !*format) {
 		free(format);
-		format = xstrdup("%s");
+		format = xstrdup("# %s");
 	}
+	if (*format != '#') {
+		char *temp = format;
+		format = xstrfmt("# %s", temp);
+		free(temp);
+	}
+
 	get_commit_format(format, &revs);
 	free(format);
 	pp.fmt = revs.commit_format;
@@ -6594,6 +6603,7 @@ int todo_list_rearrange_squash(struct todo_list *todo_list)
 	char **subjects;
 	struct commit_todo_item commit_todo;
 	struct todo_item *items = NULL;
+	int ret = 0;
 
 	init_commit_todo_item(&commit_todo);
 	/*
@@ -6624,8 +6634,8 @@ int todo_list_rearrange_squash(struct todo_list *todo_list)
 		}
 
 		if (is_fixup(item->command)) {
-			clear_commit_todo_item(&commit_todo);
-			return error(_("the script was already rearranged."));
+			ret = error(_("the script was already rearranged."));
+			goto cleanup;
 		}
 
 		repo_parse_commit(the_repository, item->commit);
@@ -6727,6 +6737,7 @@ int todo_list_rearrange_squash(struct todo_list *todo_list)
 		todo_list->items = items;
 	}
 
+cleanup:
 	free(next);
 	free(tail);
 	for (i = 0; i < todo_list->nr; i++)
@@ -6736,7 +6747,7 @@ int todo_list_rearrange_squash(struct todo_list *todo_list)
 
 	clear_commit_todo_item(&commit_todo);
 
-	return 0;
+	return ret;
 }
 
 int sequencer_determine_whence(struct repository *r, enum commit_whence *whence)
