@@ -102,7 +102,9 @@ Performance, Internal Implementation, Development Support etc.
  * "git fsck" becomes more careful when checking the refs.
 
  * "git fast-export | git fast-import" learns to deal with commit and
-   tag objects with embedded signatures a bit better.
+   tag objects with embedded signatures a bit better.  This is highly
+   experimental and the format of the data stream may change in the
+   future without compatibility guarantees.
 
  * The code paths to check whether a refname X is available (by seeing
    if another ref X/Y exists, etc.) have been optimized.
@@ -409,3 +411,4 @@ Fixes since v2.49
    (merge 91db6c735d ly/reftable-writer-leakfix later to maint).
    (merge 20e4e9ad0b jc/doc-synopsis-option-markup later to maint).
    (merge cddcee7f64 es/meson-configure-build-options-fix later to maint).
+   (merge cea9f55f00 wk/sparse-checkout-doc-fix later to maint).
