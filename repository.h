@@ -20,6 +20,12 @@ enum ref_storage_format {
 	REF_STORAGE_FORMAT_REFTABLE,
 };
 
+#ifdef WITH_BREAKING_CHANGES /* Git 3.0 */
+# define REF_STORAGE_FORMAT_DEFAULT REF_STORAGE_FORMAT_REFTABLE
+#else
+# define REF_STORAGE_FORMAT_DEFAULT REF_STORAGE_FORMAT_FILES
+#endif
+
 struct repo_path_cache {
 	char *squash_msg;
 	char *merge_msg;
@@ -151,6 +157,7 @@ struct repository {
 	/* Configurations */
 	int repository_format_worktree_config;
 	int repository_format_relative_worktrees;
+	int repository_format_precious_objects;
 
 	/* Indicate if a repository has a different 'commondir' from 'gitdir' */
 	unsigned different_commondir:1;

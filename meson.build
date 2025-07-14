@@ -1331,10 +1331,6 @@ if host_machine.system() != 'windows'
   endif
 endif
 
-if compiler.has_member('struct sysinfo', 'totalram', prefix: '#include <sys/sysinfo.h>')
-  libgit_c_args += '-DHAVE_SYSINFO'
-endif
-
 if compiler.has_member('struct stat', 'st_mtimespec.tv_nsec', prefix: '#include <sys/stat.h>')
   libgit_c_args += '-DUSE_ST_TIMESPEC'
 elif not compiler.has_member('struct stat', 'st_mtim.tv_nsec', prefix: '#include <sys/stat.h>')
@@ -1420,17 +1416,6 @@ if compiler.compiles('''
   libgit_c_args += '-DHAVE_CLOCK_MONOTONIC'
 endif
 
-if not compiler.compiles('''
-  #include <inttypes.h>
-
-  void func(void)
-  {
-    uintmax_t x = 0;
-  }
-''', name: 'uintmax_t')
-  libgit_c_args += '-DNO_UINTMAX_T'
-endif
-
 has_bsd_sysctl = false
 if compiler.has_header('sys/sysctl.h')
   if compiler.compiles('''
@@ -1446,6 +1431,12 @@ if compiler.has_header('sys/sysctl.h')
   ''', name: 'BSD sysctl')
     libgit_c_args += '-DHAVE_BSD_SYSCTL'
     has_bsd_sysctl = true
+  endif
+endif
+
+if not has_bsd_sysctl
+  if compiler.has_member('struct sysinfo', 'totalram', prefix: '#include <sys/sysinfo.h>')
+    libgit_c_args += '-DHAVE_SYSINFO'
   endif
 endif
 
@@ -2142,6 +2133,18 @@ if headers_to_check.length() != 0 and compiler.get_argument_syntax() == 'gcc'
   # TODO: deprecate 'hdr-check' in lieu of 'check-headers' in Git 2.51+
   hdr_check = alias_target('hdr-check', hco_targets)
   alias_target('check-headers', hdr_check)
+endif
+
+git_clang_format = find_program('git-clang-format', required: false, native: true)
+if git_clang_format.found()
+  run_target('style',
+    command: [
+      git_clang_format,
+      '--style', 'file',
+      '--diff',
+      '--extensions', 'c,h'
+    ]
+  )
 endif
 
 foreach key, value : {

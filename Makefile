@@ -114,8 +114,6 @@ include shared.mak
 #
 # Define NO_INTPTR_T if you don't have intptr_t or uintptr_t.
 #
-# Define NO_UINTMAX_T if you don't have uintmax_t.
-#
 # Define NEEDS_SOCKET if linking with libc is not enough (SunOS,
 # Patrick Mauritz).
 #
@@ -1367,6 +1365,7 @@ CLAR_TEST_SUITES += u-prio-queue
 CLAR_TEST_SUITES += u-reftable-tree
 CLAR_TEST_SUITES += u-strbuf
 CLAR_TEST_SUITES += u-strcmp-offset
+CLAR_TEST_SUITES += u-string-list
 CLAR_TEST_SUITES += u-strvec
 CLAR_TEST_SUITES += u-trailer
 CLAR_TEST_SUITES += u-urlmatch-normalization
@@ -1917,9 +1916,6 @@ ifdef NO_IPV6
 endif
 ifdef NO_INTPTR_T
 	COMPAT_CFLAGS += -DNO_INTPTR_T
-endif
-ifdef NO_UINTMAX_T
-	BASIC_CFLAGS += -Duintmax_t=uint32_t
 endif
 ifdef NO_SOCKADDR_STORAGE
 ifdef NO_IPV6
@@ -3473,11 +3469,14 @@ endif
 coccicheck-test: $(COCCI_TEST_RES_GEN)
 
 coccicheck: coccicheck-test
+
 ifdef SPATCH_CONCAT_COCCI
-coccicheck: contrib/coccinelle/ALL.cocci.patch
+COCCICHECK_PATCH_MUST_BE_EMPTY_FILES = contrib/coccinelle/ALL.cocci.patch
 else
-coccicheck: $(COCCICHECK_PATCHES_INTREE)
+COCCICHECK_PATCH_MUST_BE_EMPTY_FILES = $(COCCICHECK_PATCHES_INTREE)
 endif
+coccicheck: $(COCCICHECK_PATCH_MUST_BE_EMPTY_FILES)
+	! grep -q ^ $(COCCICHECK_PATCH_MUST_BE_EMPTY_FILES) /dev/null
 
 # See contrib/coccinelle/README
 coccicheck-pending: coccicheck-test
