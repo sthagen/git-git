@@ -223,9 +223,9 @@ static void mark_packs_for_deletion(struct existing_packs *existing,
 static void remove_redundant_pack(const char *dir_name, const char *base_name)
 {
 	struct strbuf buf = STRBUF_INIT;
-	struct multi_pack_index *m = get_local_multi_pack_index(the_repository);
+	struct multi_pack_index *m = get_multi_pack_index(the_repository->objects->sources);
 	strbuf_addf(&buf, "%s.pack", base_name);
-	if (m && midx_contains_pack(m, buf.buf))
+	if (m && m->local && midx_contains_pack(m, buf.buf))
 		clear_midx_file(the_repository);
 	strbuf_insertf(&buf, 0, "%s/", dir_name);
 	unlink_pack_path(buf.buf, 1);
@@ -1340,7 +1340,7 @@ int cmd_repack(int argc,
 
 	list_objects_filter_init(&po_args.filter_options);
 
-	git_config(repack_config, &cruft_po_args);
+	repo_config(the_repository, repack_config, &cruft_po_args);
 
 	argc = parse_options(argc, argv, prefix, builtin_repack_options,
 				git_repack_usage, 0);
@@ -1531,7 +1531,7 @@ int cmd_repack(int argc,
 		 * midx_has_unknown_packs() will make the decision for
 		 * us.
 		 */
-		if (!get_local_multi_pack_index(the_repository))
+		if (!get_multi_pack_index(the_repository->objects->sources))
 			midx_must_contain_cruft = 1;
 	}
 
@@ -1614,9 +1614,9 @@ int cmd_repack(int argc,
 
 	string_list_sort(&names);
 
-	if (get_local_multi_pack_index(the_repository)) {
+	if (get_multi_pack_index(the_repository->objects->sources)) {
 		struct multi_pack_index *m =
-			get_local_multi_pack_index(the_repository);
+			get_multi_pack_index(the_repository->objects->sources);
 
 		ALLOC_ARRAY(midx_pack_names,
 			    m->num_packs + m->num_packs_in_base);

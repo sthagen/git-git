@@ -61,6 +61,8 @@ static const char * const restore_usage[] = {
 
 struct checkout_opts {
 	int patch_mode;
+	int patch_context;
+	int patch_interhunk_context;
 	int quiet;
 	int merge;
 	int force;
@@ -104,7 +106,12 @@ struct checkout_opts {
 	struct tree *source_tree;
 };
 
-#define CHECKOUT_OPTS_INIT { .conflict_style = -1, .merge = -1 }
+#define CHECKOUT_OPTS_INIT { \
+	.conflict_style = -1, \
+	.merge = -1, \
+	.patch_context = -1, \
+	.patch_interhunk_context = -1, \
+}
 
 struct branch_info {
 	char *name; /* The short name used */
@@ -291,7 +298,7 @@ static int checkout_merged(int pos, const struct checkout *state,
 	read_mmblob(&ours, &threeway[1]);
 	read_mmblob(&theirs, &threeway[2]);
 
-	git_config_get_bool("merge.renormalize", &renormalize);
+	repo_config_get_bool(the_repository, "merge.renormalize", &renormalize);
 	ll_opts.renormalize = renormalize;
 	ll_opts.conflict_style = conflict_style;
 	merge_status = ll_merge(&result_buf, path, &ancestor, "base",
@@ -539,6 +546,10 @@ static int checkout_paths(const struct checkout_opts *opts,
 
 	if (opts->patch_mode) {
 		enum add_p_mode patch_mode;
+		struct add_p_opt add_p_opt = {
+			.context = opts->patch_context,
+			.interhunkcontext = opts->patch_interhunk_context,
+		};
 		const char *rev = new_branch_info->name;
 		char rev_oid[GIT_MAX_HEXSZ + 1];
 
@@ -564,8 +575,8 @@ static int checkout_paths(const struct checkout_opts *opts,
 		else
 			BUG("either flag must have been set, worktree=%d, index=%d",
 			    opts->checkout_worktree, opts->checkout_index);
-		return !!run_add_p(the_repository, patch_mode, rev,
-				   &opts->pathspec);
+		return !!run_add_p(the_repository, patch_mode, &add_p_opt,
+				   rev, &opts->pathspec);
 	}
 
 	repo_hold_locked_index(the_repository, &lock_file, LOCK_DIE_ON_ERROR);
@@ -1738,6 +1749,8 @@ static struct option *add_checkout_path_options(struct checkout_opts *opts,
 			      N_("checkout their version for unmerged files"),
 			      3, PARSE_OPT_NONEG),
 		OPT_BOOL('p', "patch", &opts->patch_mode, N_("select hunks interactively")),
+		OPT_DIFF_UNIFIED(&opts->patch_context),
+		OPT_DIFF_INTERHUNK_CONTEXT(&opts->patch_interhunk_context),
 		OPT_BOOL(0, "ignore-skip-worktree-bits", &opts->ignore_skipworktree,
 			 N_("do not limit pathspecs to sparse entries only")),
 		OPT_PATHSPEC_FROM_FILE(&opts->pathspec_from_file),
@@ -1764,7 +1777,7 @@ static int checkout_main(int argc, const char **argv, const char *prefix,
 	opts->prefix = prefix;
 	opts->show_progress = -1;
 
-	git_config(git_checkout_config, opts);
+	repo_config(the_repository, git_checkout_config, opts);
 	if (the_repository->gitdir) {
 		prepare_repo_settings(the_repository);
 		the_repository->settings.command_requires_full_index = 0;
@@ -1779,6 +1792,18 @@ static int checkout_main(int argc, const char **argv, const char *prefix,
 
 	argc = parse_options(argc, argv, prefix, options,
 			     usagestr, parseopt_flags);
+
+	if (opts->patch_context < -1)
+		die(_("'%s' cannot be negative"), "--unified");
+	if (opts->patch_interhunk_context < -1)
+		die(_("'%s' cannot be negative"), "--inter-hunk-context");
+
+	if (!opts->patch_mode) {
+		if (opts->patch_context != -1)
+			die(_("the option '%s' requires '%s'"), "--unified", "--patch");
+		if (opts->patch_interhunk_context != -1)
+			die(_("the option '%s' requires '%s'"), "--inter-hunk-context", "--patch");
+	}
 
 	if (opts->show_progress < 0) {
 		if (opts->quiet)

@@ -1,6 +1,7 @@
 #include "builtin.h"
 #include "commit.h"
 #include "config.h"
+#include "environment.h"
 #include "gettext.h"
 #include "object.h"
 #include "parse-options.h"
@@ -13,6 +14,7 @@ static char const * const for_each_ref_usage[] = {
 	N_("git for-each-ref [--points-at <object>]"),
 	N_("git for-each-ref [--merged [<commit>]] [--no-merged [<commit>]]"),
 	N_("git for-each-ref [--contains [<commit>]] [--no-contains [<commit>]]"),
+	N_("git for-each-ref [--start-after <marker>]"),
 	NULL
 };
 
@@ -44,6 +46,7 @@ int cmd_for_each_ref(int argc,
 		OPT_GROUP(""),
 		OPT_INTEGER( 0 , "count", &format.array_opts.max_count, N_("show only <n> matched refs")),
 		OPT_STRING(  0 , "format", &format.format, N_("format"), N_("format to use for the output")),
+		OPT_STRING(  0 , "start-after", &filter.start_after, N_("start-after"), N_("start iteration after the provided marker")),
 		OPT__COLOR(&format.use_color, N_("respect format colors")),
 		OPT_REF_FILTER_EXCLUDE(&filter),
 		OPT_REF_SORT(&sorting_options),
@@ -79,6 +82,9 @@ int cmd_for_each_ref(int argc,
 	if (verify_ref_format(&format))
 		usage_with_options(for_each_ref_usage, opts);
 
+	if (filter.start_after && sorting_options.nr > 1)
+		die(_("cannot use --start-after with custom sort options"));
+
 	sorting = ref_sorting_options(&sorting_options);
 	ref_sorting_set_sort_flags_all(sorting, REF_SORTING_ICASE, icase);
 	filter.ignore_case = icase;
@@ -99,6 +105,9 @@ int cmd_for_each_ref(int argc,
 	} else {
 		filter.name_patterns = argv;
 	}
+
+	if (filter.start_after && filter.name_patterns && filter.name_patterns[0])
+		die(_("cannot use --start-after with patterns"));
 
 	if (include_root_refs)
 		flags |= FILTER_REFS_ROOT_REFS | FILTER_REFS_DETACHED_HEAD;

@@ -293,6 +293,19 @@ static int do_interactive_rebase(struct rebase_options *opts, unsigned flags)
 				&revisions, &shortrevisions))
 		goto cleanup;
 
+	strvec_pushl(&make_script_args, "", revisions, NULL);
+	if (opts->restrict_revision)
+		strvec_pushf(&make_script_args, "^%s",
+			     oid_to_hex(&opts->restrict_revision->object.oid));
+
+	ret = sequencer_make_script(the_repository, &todo_list.buf,
+				    make_script_args.nr, make_script_args.v,
+				    flags);
+	if (ret) {
+		error(_("could not generate todo list"));
+		goto cleanup;
+	}
+
 	if (init_basic_state(&replay,
 			     opts->head_name ? opts->head_name : "detached HEAD",
 			     opts->onto, &opts->orig_head->object.oid))
@@ -302,28 +315,15 @@ static int do_interactive_rebase(struct rebase_options *opts, unsigned flags)
 		write_file(path_squash_onto(), "%s\n",
 			   oid_to_hex(opts->squash_onto));
 
-	strvec_pushl(&make_script_args, "", revisions, NULL);
-	if (opts->restrict_revision)
-		strvec_pushf(&make_script_args, "^%s",
-			     oid_to_hex(&opts->restrict_revision->object.oid));
+	discard_index(the_repository->index);
+	if (todo_list_parse_insn_buffer(the_repository, &replay,
+					todo_list.buf.buf, &todo_list))
+		BUG("unusable todo list");
 
-	ret = sequencer_make_script(the_repository, &todo_list.buf,
-				    make_script_args.nr, make_script_args.v,
-				    flags);
-
-	if (ret)
-		error(_("could not generate todo list"));
-	else {
-		discard_index(the_repository->index);
-		if (todo_list_parse_insn_buffer(the_repository, &replay,
-						todo_list.buf.buf, &todo_list))
-			BUG("unusable todo list");
-
-		ret = complete_action(the_repository, &replay, flags,
-			shortrevisions, opts->onto_name, opts->onto,
-			&opts->orig_head->object.oid, &opts->exec,
-			opts->autosquash, opts->update_refs, &todo_list);
-	}
+	ret = complete_action(the_repository, &replay, flags,
+		shortrevisions, opts->onto_name, opts->onto,
+		&opts->orig_head->object.oid, &opts->exec,
+		opts->autosquash, opts->update_refs, &todo_list);
 
 cleanup:
 	replay_opts_release(&replay);
@@ -340,7 +340,7 @@ static int run_sequencer_rebase(struct rebase_options *opts)
 	unsigned flags = 0;
 	int abbreviate_commands = 0, ret = 0;
 
-	git_config_get_bool("rebase.abbreviatecommands", &abbreviate_commands);
+	repo_config_get_bool(the_repository, "rebase.abbreviatecommands", &abbreviate_commands);
 
 	flags |= opts->keep_empty ? TODO_LIST_KEEP_EMPTY : 0;
 	flags |= abbreviate_commands ? TODO_LIST_ABBREVIATE_CMDS : 0;
@@ -1245,7 +1245,7 @@ int cmd_rebase(int argc,
 	prepare_repo_settings(the_repository);
 	the_repository->settings.command_requires_full_index = 0;
 
-	git_config(rebase_config, &options);
+	repo_config(the_repository, rebase_config, &options);
 	/* options.gpg_sign_opt will be either "-S" or NULL */
 	gpg_sign = options.gpg_sign_opt ? "" : NULL;
 	FREE_AND_NULL(options.gpg_sign_opt);

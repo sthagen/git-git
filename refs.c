@@ -945,7 +945,7 @@ long get_files_ref_lock_timeout_ms(void)
 	static int timeout_ms = 100;
 
 	if (!configured) {
-		git_config_get_int("core.filesreflocktimeout", &timeout_ms);
+		repo_config_get_int(the_repository, "core.filesreflocktimeout", &timeout_ms);
 		configured = 1;
 	}
 
@@ -2657,12 +2657,12 @@ enum ref_transaction_error refs_verify_refnames_available(struct ref_store *refs
 		if (!initial_transaction) {
 			int ok;
 
-			if (!iter) {
+			if (!iter)
 				iter = refs_ref_iterator_begin(refs, dirname.buf, NULL, 0,
 							       DO_FOR_EACH_INCLUDE_BROKEN);
-			} else if (ref_iterator_seek(iter, dirname.buf) < 0) {
+			else if (ref_iterator_seek(iter, dirname.buf,
+						   REF_ITERATOR_SEEK_SET_PREFIX) < 0)
 				goto cleanup;
-			}
 
 			while ((ok = ref_iterator_advance(iter)) == ITER_OK) {
 				if (skip &&
