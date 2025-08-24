@@ -428,6 +428,8 @@ int refs_for_each_namespaced_ref(struct ref_store *refs,
 
 /* can be used to learn about broken ref and symref */
 int refs_for_each_rawref(struct ref_store *refs, each_ref_fn fn, void *cb_data);
+int refs_for_each_rawref_in(struct ref_store *refs, const char *prefix,
+			    each_ref_fn fn, void *cb_data);
 
 /*
  * Iterates over all refs including root refs, i.e. pseudorefs and HEAD.
@@ -558,10 +560,13 @@ int refs_delete_reflog(struct ref_store *refs, const char *refname);
  * The cb_data is a caller-supplied pointer given to the iterator
  * functions.
  */
-typedef int each_reflog_ent_fn(
-		struct object_id *old_oid, struct object_id *new_oid,
-		const char *committer, timestamp_t timestamp,
-		int tz, const char *msg, void *cb_data);
+typedef int each_reflog_ent_fn(const char *refname,
+			       struct object_id *old_oid,
+			       struct object_id *new_oid,
+			       const char *committer,
+			       timestamp_t timestamp,
+			       int tz, const char *msg,
+			       void *cb_data);
 
 /* Iterate over reflog entries in the log for `refname`. */
 
@@ -760,12 +765,19 @@ struct ref_transaction *ref_store_transaction_begin(struct ref_store *refs,
 #define REF_SKIP_CREATE_REFLOG (1 << 12)
 
 /*
+ * When writing a REF_LOG_ONLY record, use the old and new object IDs provided
+ * in the update instead of resolving the old object ID. The caller must also
+ * set both REF_HAVE_OLD and REF_HAVE_NEW.
+ */
+#define REF_LOG_USE_PROVIDED_OIDS (1 << 13)
+
+/*
  * Bitmask of all of the flags that are allowed to be passed in to
  * ref_transaction_update() and friends:
  */
 #define REF_TRANSACTION_UPDATE_ALLOWED_FLAGS                                  \
 	(REF_NO_DEREF | REF_FORCE_CREATE_REFLOG | REF_SKIP_OID_VERIFICATION | \
-	 REF_SKIP_REFNAME_VERIFICATION | REF_SKIP_CREATE_REFLOG)
+	 REF_SKIP_REFNAME_VERIFICATION | REF_SKIP_CREATE_REFLOG | REF_LOG_USE_PROVIDED_OIDS)
 
 /*
  * Add a reference update to transaction. `new_oid` is the value that
@@ -793,6 +805,21 @@ int ref_transaction_update(struct ref_transaction *transaction,
 			   const char *old_target,
 			   unsigned int flags, const char *msg,
 			   struct strbuf *err);
+
+/*
+ * Similar to `ref_transaction_update`, but this function is only for adding
+ * a reflog update. Supports providing custom committer information. The index
+ * field can be utiltized to order updates as desired. When set to zero, the
+ * updates default to being ordered by refname.
+ */
+int ref_transaction_update_reflog(struct ref_transaction *transaction,
+				  const char *refname,
+				  const struct object_id *new_oid,
+				  const struct object_id *old_oid,
+				  const char *committer_info,
+				  const char *msg,
+				  uint64_t index,
+				  struct strbuf *err);
 
 /*
  * Add a reference creation to transaction. new_oid is the value that

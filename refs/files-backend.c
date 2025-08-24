@@ -68,6 +68,12 @@
  */
 #define REF_DELETED_RMDIR (1 << 9)
 
+/*
+ * Used to indicate that the reflog-only update has been created via
+ * `split_head_update()`.
+ */
+#define REF_LOG_VIA_SPLIT (1 << 14)
+
 struct ref_lock {
 	char *ref_name;
 	struct lock_file lk;
@@ -2109,7 +2115,9 @@ static int files_delete_reflog(struct ref_store *ref_store,
 	return ret;
 }
 
-static int show_one_reflog_ent(struct files_ref_store *refs, struct strbuf *sb,
+static int show_one_reflog_ent(struct files_ref_store *refs,
+			       const char *refname,
+			       struct strbuf *sb,
 			       each_reflog_ent_fn fn, void *cb_data)
 {
 	struct object_id ooid, noid;
@@ -2136,7 +2144,7 @@ static int show_one_reflog_ent(struct files_ref_store *refs, struct strbuf *sb,
 		message += 6;
 	else
 		message += 7;
-	return fn(&ooid, &noid, p, timestamp, tz, message, cb_data);
+	return fn(refname, &ooid, &noid, p, timestamp, tz, message, cb_data);
 }
 
 static char *find_beginning_of_line(char *bob, char *scan)
@@ -2220,7 +2228,7 @@ static int files_for_each_reflog_ent_reverse(struct ref_store *ref_store,
 				strbuf_splice(&sb, 0, 0, bp + 1, endp - (bp + 1));
 				scanp = bp;
 				endp = bp + 1;
-				ret = show_one_reflog_ent(refs, &sb, fn, cb_data);
+				ret = show_one_reflog_ent(refs, refname, &sb, fn, cb_data);
 				strbuf_reset(&sb);
 				if (ret)
 					break;
@@ -2232,7 +2240,7 @@ static int files_for_each_reflog_ent_reverse(struct ref_store *ref_store,
 				 * Process it, and we can end the loop.
 				 */
 				strbuf_splice(&sb, 0, 0, buf, endp - buf);
-				ret = show_one_reflog_ent(refs, &sb, fn, cb_data);
+				ret = show_one_reflog_ent(refs, refname, &sb, fn, cb_data);
 				strbuf_reset(&sb);
 				break;
 			}
@@ -2282,7 +2290,7 @@ static int files_for_each_reflog_ent(struct ref_store *ref_store,
 		return -1;
 
 	while (!ret && !strbuf_getwholeline(&sb, logfp, '\n'))
-		ret = show_one_reflog_ent(refs, &sb, fn, cb_data);
+		ret = show_one_reflog_ent(refs, refname, &sb, fn, cb_data);
 	fclose(logfp);
 	strbuf_release(&sb);
 	return ret;
@@ -2421,9 +2429,10 @@ static enum ref_transaction_error split_head_update(struct ref_update *update,
 
 	new_update = ref_transaction_add_update(
 			transaction, "HEAD",
-			update->flags | REF_LOG_ONLY | REF_NO_DEREF,
+			update->flags | REF_LOG_ONLY | REF_NO_DEREF | REF_LOG_VIA_SPLIT,
 			&update->new_oid, &update->old_oid,
 			NULL, NULL, update->committer_info, update->msg);
+	new_update->parent_update = update;
 
 	/*
 	 * Add "HEAD". This insertion is O(N) in the transaction
@@ -2494,7 +2503,6 @@ static enum ref_transaction_error split_symref_update(struct ref_update *update,
 	 * done when new_update is processed.
 	 */
 	update->flags |= REF_LOG_ONLY | REF_NO_DEREF;
-	update->flags &= ~REF_HAVE_OLD;
 
 	return 0;
 }
@@ -2509,8 +2517,9 @@ static enum ref_transaction_error check_old_oid(struct ref_update *update,
 						struct object_id *oid,
 						struct strbuf *err)
 {
-	if (!(update->flags & REF_HAVE_OLD) ||
-		   oideq(oid, &update->old_oid))
+	if (update->flags & REF_LOG_ONLY ||
+	    !(update->flags & REF_HAVE_OLD) ||
+	    oideq(oid, &update->old_oid))
 		return 0;
 
 	if (is_null_oid(&update->old_oid)) {
@@ -2601,7 +2610,36 @@ static enum ref_transaction_error lock_ref_for_update(struct files_ref_store *re
 
 	update->backend_data = lock;
 
-	if (update->type & REF_ISSYMREF) {
+	if (update->flags & REF_LOG_VIA_SPLIT) {
+		struct ref_lock *parent_lock;
+
+		if (!update->parent_update)
+			BUG("split update without a parent");
+
+		parent_lock = update->parent_update->backend_data;
+
+		/*
+		 * Check that "HEAD" didn't racily change since we have looked
+		 * it up. If it did we must refuse to write the reflog entry.
+		 *
+		 * Note that this does not catch all races: if "HEAD" was
+		 * racily changed to point to one of the refs part of the
+		 * transaction then we would miss writing the split reflog
+		 * entry for "HEAD".
+		 */
+		if (!(update->type & REF_ISSYMREF) ||
+		    strcmp(update->parent_update->refname, referent.buf)) {
+			strbuf_addstr(err, "HEAD has been racily updated");
+			ret = REF_TRANSACTION_ERROR_GENERIC;
+			goto out;
+		}
+
+		if (update->flags & REF_HAVE_OLD) {
+			oidcpy(&lock->old_oid, &update->old_oid);
+		} else {
+			oidcpy(&lock->old_oid, &parent_lock->old_oid);
+		}
+	} else if (update->type & REF_ISSYMREF) {
 		if (update->flags & REF_NO_DEREF) {
 			/*
 			 * We won't be reading the referent as part of
@@ -2977,6 +3015,20 @@ static int parse_and_write_reflog(struct files_ref_store *refs,
 				  struct ref_lock *lock,
 				  struct strbuf *err)
 {
+	struct object_id *old_oid = &lock->old_oid;
+
+	if (update->flags & REF_LOG_USE_PROVIDED_OIDS) {
+		if (!(update->flags & REF_HAVE_OLD) ||
+		    !(update->flags & REF_HAVE_NEW) ||
+		    !(update->flags & REF_LOG_ONLY)) {
+			strbuf_addf(err, _("trying to write reflog for '%s'"
+					   "with incomplete values"), update->refname);
+			return REF_TRANSACTION_ERROR_GENERIC;
+		}
+
+		old_oid = &update->old_oid;
+	}
+
 	if (update->new_target) {
 		/*
 		 * We want to get the resolved OID for the target, to ensure
@@ -2994,7 +3046,7 @@ static int parse_and_write_reflog(struct files_ref_store *refs,
 		}
 	}
 
-	if (files_log_ref_write(refs, lock->ref_name, &lock->old_oid,
+	if (files_log_ref_write(refs, lock->ref_name, old_oid,
 				&update->new_oid, update->committer_info,
 				update->msg, update->flags, err)) {
 		char *old_msg = strbuf_detach(err, NULL);
@@ -3062,7 +3114,8 @@ static int files_transaction_finish_initial(struct files_ref_store *refs,
 	for (i = 0; i < transaction->nr; i++) {
 		struct ref_update *update = transaction->updates[i];
 
-		if ((update->flags & REF_HAVE_OLD) &&
+		if (!(update->flags & REF_LOG_ONLY) &&
+		    (update->flags & REF_HAVE_OLD) &&
 		    !is_null_oid(&update->old_oid))
 			BUG("initial ref transaction with old_sha1 set");
 
@@ -3309,7 +3362,8 @@ struct expire_reflog_cb {
 		     dry_run:1;
 };
 
-static int expire_reflog_ent(struct object_id *ooid, struct object_id *noid,
+static int expire_reflog_ent(const char *refname UNUSED,
+			     struct object_id *ooid, struct object_id *noid,
 			     const char *email, timestamp_t timestamp, int tz,
 			     const char *message, void *cb_data)
 {

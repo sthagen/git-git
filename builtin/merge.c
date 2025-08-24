@@ -875,7 +875,7 @@ static void add_strategies(const char *string, unsigned attr)
 	if (string) {
 		struct string_list list = STRING_LIST_INIT_DUP;
 		struct string_list_item *item;
-		string_list_split(&list, string, ' ', -1);
+		string_list_split(&list, string, " ", -1);
 		for_each_string_list_item(item, &list)
 			append_strategy(get_strategy(item->string));
 		string_list_clear(&list, 0);
@@ -1374,6 +1374,7 @@ int cmd_merge(int argc,
 	struct commit_list *remoteheads = NULL, *p;
 	void *branch_to_free;
 	int orig_argc = argc;
+	int merge_log_config = -1;
 
 	show_usage_with_options_if_asked(argc, argv,
 					 builtin_merge_usage, builtin_merge_options);
@@ -1392,7 +1393,7 @@ int cmd_merge(int argc,
 		skip_prefix(branch, "refs/heads/", &branch);
 
 	init_diff_ui_defaults();
-	repo_config(the_repository, git_merge_config, NULL);
+	repo_config(the_repository, git_merge_config, &merge_log_config);
 
 	if (!branch || is_null_oid(&head_oid))
 		head_commit = NULL;

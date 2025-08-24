@@ -29,7 +29,7 @@ static unsigned int parse_flags(const char *str, struct flag_definition *defs)
 	if (!strcmp(str, "0"))
 		return 0;
 
-	string_list_split(&masks, str, ',', 64);
+	string_list_split(&masks, str, ",", 64);
 	for (size_t i = 0; i < masks.nr; i++) {
 		const char *name = masks.items[i].string;
 		struct flag_definition *def = defs;
@@ -215,7 +215,8 @@ static int cmd_for_each_reflog(struct ref_store *refs,
 	return refs_for_each_reflog(refs, each_reflog, NULL);
 }
 
-static int each_reflog_ent(struct object_id *old_oid, struct object_id *new_oid,
+static int each_reflog_ent(const char *refname UNUSED,
+			   struct object_id *old_oid, struct object_id *new_oid,
 			   const char *committer, timestamp_t timestamp,
 			   int tz, const char *msg, void *cb_data UNUSED)
 {
