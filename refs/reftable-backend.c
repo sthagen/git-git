@@ -1012,10 +1012,6 @@ static int prepare_transaction_update(struct write_transaction_table_arg **out,
 	if (!arg) {
 		struct reftable_addition *addition;
 
-		ret = reftable_stack_reload(be->stack);
-		if (ret)
-			return ret;
-
 		ret = reftable_stack_new_addition(&addition, be->stack,
 						  REFTABLE_STACK_NEW_ADDITION_RELOAD);
 		if (ret) {
@@ -1278,9 +1274,33 @@ static enum ref_transaction_error prepare_single_update(struct reftable_ref_stor
 		ret = ref_update_check_old_target(referent->buf, u, err);
 		if (ret)
 			return ret;
-	} else if ((u->flags & (REF_LOG_ONLY | REF_HAVE_OLD)) == REF_HAVE_OLD &&
-		   !oideq(&current_oid, &u->old_oid)) {
-		if (is_null_oid(&u->old_oid)) {
+	} else if ((u->flags & (REF_LOG_ONLY | REF_HAVE_OLD)) == REF_HAVE_OLD) {
+		if (oideq(&current_oid, &u->old_oid)) {
+			/*
+			 * Normally matching the expected old oid is enough. Either we
+			 * found the ref at the expected state, or we are creating and
+			 * expect the null oid (and likewise found nothing).
+			 *
+			 * But there is one exception for the null oid: if we found a
+			 * symref pointing to nothing we'll also get the null oid. In
+			 * regular recursive mode, that's good (we'll write to what the
+			 * symref points to, which doesn't exist). But in no-deref
+			 * mode, it means we'll clobber the symref, even though the
+			 * caller asked for this to be a creation event. So flag
+			 * that case to preserve the dangling symref.
+			 *
+			 * Everything else is OK and we can fall through to the
+			 * end of the conditional chain.
+			 */
+			if ((u->flags & REF_NO_DEREF) &&
+			    referent->len &&
+			    is_null_oid(&u->old_oid)) {
+				strbuf_addf(err, _("cannot lock ref '%s': "
+					    "dangling symref already exists"),
+					    ref_update_original_update_refname(u));
+				return REF_TRANSACTION_ERROR_CREATE_EXISTS;
+			}
+		} else if (is_null_oid(&u->old_oid)) {
 			strbuf_addf(err, _("cannot lock ref '%s': "
 					   "reference already exists"),
 				    ref_update_original_update_refname(u));
@@ -1974,7 +1994,8 @@ static int reftable_be_rename_ref(struct ref_store *ref_store,
 	ret = backend_for(&arg.be, refs, newrefname, &newrefname, 1);
 	if (ret)
 		goto done;
-	ret = reftable_stack_add(arg.be->stack, &write_copy_table, &arg);
+	ret = reftable_stack_add(arg.be->stack, &write_copy_table, &arg,
+				 REFTABLE_STACK_NEW_ADDITION_RELOAD);
 
 done:
 	assert(ret != REFTABLE_API_ERROR);
@@ -2003,7 +2024,8 @@ static int reftable_be_copy_ref(struct ref_store *ref_store,
 	ret = backend_for(&arg.be, refs, newrefname, &newrefname, 1);
 	if (ret)
 		goto done;
-	ret = reftable_stack_add(arg.be->stack, &write_copy_table, &arg);
+	ret = reftable_stack_add(arg.be->stack, &write_copy_table, &arg,
+				 REFTABLE_STACK_NEW_ADDITION_RELOAD);
 
 done:
 	assert(ret != REFTABLE_API_ERROR);
@@ -2375,7 +2397,8 @@ static int reftable_be_create_reflog(struct ref_store *ref_store,
 		goto done;
 	arg.stack = be->stack;
 
-	ret = reftable_stack_add(be->stack, &write_reflog_existence_table, &arg);
+	ret = reftable_stack_add(be->stack, &write_reflog_existence_table, &arg,
+				 REFTABLE_STACK_NEW_ADDITION_RELOAD);
 
 done:
 	return ret;
@@ -2446,7 +2469,8 @@ static int reftable_be_delete_reflog(struct ref_store *ref_store,
 		return ret;
 	arg.stack = be->stack;
 
-	ret = reftable_stack_add(be->stack, &write_reflog_delete_table, &arg);
+	ret = reftable_stack_add(be->stack, &write_reflog_delete_table, &arg,
+				 REFTABLE_STACK_NEW_ADDITION_RELOAD);
 
 	assert(ret != REFTABLE_API_ERROR);
 	return ret;
@@ -2567,15 +2591,16 @@ static int reftable_be_reflog_expire(struct ref_store *ref_store,
 	if (ret < 0)
 		goto done;
 
+	ret = reftable_stack_new_addition(&add, be->stack,
+					  REFTABLE_STACK_NEW_ADDITION_RELOAD);
+	if (ret < 0)
+		goto done;
+
 	ret = reftable_stack_init_log_iterator(be->stack, &it);
 	if (ret < 0)
 		goto done;
 
 	ret = reftable_iterator_seek_log(&it, refname);
-	if (ret < 0)
-		goto done;
-
-	ret = reftable_stack_new_addition(&add, be->stack, 0);
 	if (ret < 0)
 		goto done;
 
