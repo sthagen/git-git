@@ -377,7 +377,7 @@ static int diff_tree_binary(struct strbuf *out, struct object_id *w_commit)
 	 * however it should be done together with apply_cached.
 	 */
 	cp.git_cmd = 1;
-	strvec_pushl(&cp.args, "diff-tree", "--binary", NULL);
+	strvec_pushl(&cp.args, "diff-tree", "--binary", "--no-color", NULL);
 	strvec_pushf(&cp.args, "%s^2^..%s^2", w_commit_hex, w_commit_hex);
 
 	return pipe_command(&cp, NULL, 0, out, 0, NULL, 0);
@@ -1089,7 +1089,6 @@ static int store_stash(int argc, const char **argv, const char *prefix,
 	int quiet = 0;
 	const char *stash_msg = NULL;
 	struct object_id obj;
-	struct object_context dummy = {0};
 	struct option options[] = {
 		OPT__QUIET(&quiet, N_("be quiet")),
 		OPT_STRING('m', "message", &stash_msg, "message",
@@ -1109,9 +1108,8 @@ static int store_stash(int argc, const char **argv, const char *prefix,
 		return -1;
 	}
 
-	if (get_oid_with_context(the_repository,
-				 argv[0], quiet ? GET_OID_QUIETLY : 0, &obj,
-				 &dummy)) {
+	if (repo_get_oid_with_flags(the_repository, argv[0], &obj,
+				    quiet ? GET_OID_QUIETLY : 0)) {
 		if (!quiet)
 			fprintf_ln(stderr, _("Cannot update %s with %s"),
 					     ref_stash, argv[0]);
@@ -1122,7 +1120,6 @@ static int store_stash(int argc, const char **argv, const char *prefix,
 	ret = do_store_stash(&obj, stash_msg, quiet);
 
 out:
-	object_context_release(&dummy);
 	return ret;
 }
 
@@ -1284,6 +1281,7 @@ static int stash_staged(struct stash_info *info, struct strbuf *out_patch,
 
 	cp_diff_tree.git_cmd = 1;
 	strvec_pushl(&cp_diff_tree.args, "diff-tree", "-p", "--binary",
+		     "--no-color",
 		     "-U1", "HEAD", oid_to_hex(&info->w_tree), "--", NULL);
 	if (pipe_command(&cp_diff_tree, NULL, 0, out_patch, 0, NULL, 0)) {
 		ret = -1;
@@ -1346,6 +1344,7 @@ static int stash_patch(struct stash_info *info, const struct pathspec *ps,
 
 	cp_diff_tree.git_cmd = 1;
 	strvec_pushl(&cp_diff_tree.args, "diff-tree", "-p", "-U1", "HEAD",
+		     "--no-color",
 		     oid_to_hex(&info->w_tree), "--", NULL);
 	if (pipe_command(&cp_diff_tree, NULL, 0, out_patch, 0, NULL, 0)) {
 		ret = -1;
@@ -1720,6 +1719,7 @@ static int do_push_stash(const struct pathspec *ps, const char *stash_msg, int q
 
 			cp_diff.git_cmd = 1;
 			strvec_pushl(&cp_diff.args, "diff-index", "-p",
+				     "--no-color",
 				     "--cached", "--binary", "HEAD", "--",
 				     NULL);
 			add_pathspecs(&cp_diff.args, ps);
@@ -2235,7 +2235,6 @@ static int do_export_stash(struct repository *r,
 			   const char **argv)
 {
 	struct object_id base;
-	struct object_context unused;
 	struct commit *prev;
 	struct commit_list *items = NULL, **iter = &items, *cur;
 	int res = 0;
@@ -2269,9 +2268,9 @@ static int do_export_stash(struct repository *r,
 			struct commit *stash;
 
 			if (parse_stash_revision(&revision, argv[i], 1) ||
-			    get_oid_with_context(r, revision.buf,
-						 GET_OID_QUIETLY | GET_OID_GENTLY,
-						 &oid, &unused)) {
+			    repo_get_oid_with_flags(r, revision.buf, &oid,
+						    GET_OID_QUIETLY |
+						    GET_OID_GENTLY)) {
 				res = error(_("unable to find stash entry %s"), argv[i]);
 				goto out;
 			}
