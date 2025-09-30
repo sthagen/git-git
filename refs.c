@@ -627,10 +627,12 @@ void expand_ref_prefix(struct strvec *prefixes, const char *prefix)
 		strvec_pushf(prefixes, *p, len, prefix);
 }
 
+#ifndef WITH_BREAKING_CHANGES
 static const char default_branch_name_advice[] = N_(
 "Using '%s' as the name for the initial branch. This default branch name\n"
-"is subject to change. To configure the initial branch name to use in all\n"
-"of your new repositories, which will suppress this warning, call:\n"
+"will change to \"main\" in Git 3.0. To configure the initial branch name\n"
+"to use in all of your new repositories, which will suppress this warning,\n"
+"call:\n"
 "\n"
 "\tgit config --global init.defaultBranch <name>\n"
 "\n"
@@ -639,6 +641,15 @@ static const char default_branch_name_advice[] = N_(
 "\n"
 "\tgit branch -m <name>\n"
 );
+#else
+static const char default_branch_name_advice[] = N_(
+"Using '%s' as the name for the initial branch since Git 3.0.\n"
+"If you expected Git to create 'master', the just-created\n"
+"branch can be renamed via this command:\n"
+"\n"
+"\tgit branch -m master\n"
+);
+#endif /* WITH_BREAKING_CHANGES */
 
 char *repo_default_branch_name(struct repository *r, int quiet)
 {
@@ -649,11 +660,15 @@ char *repo_default_branch_name(struct repository *r, int quiet)
 
 	if (env && *env)
 		ret = xstrdup(env);
-	else if (repo_config_get_string(r, config_key, &ret) < 0)
+	if (!ret && repo_config_get_string(r, config_key, &ret) < 0)
 		die(_("could not retrieve `%s`"), config_display_key);
 
 	if (!ret) {
+#ifdef WITH_BREAKING_CHANGES
+		ret = xstrdup("main");
+#else
 		ret = xstrdup("master");
+#endif /* WITH_BREAKING_CHANGES */
 		if (!quiet)
 			advise_if_enabled(ADVICE_DEFAULT_BRANCH_NAME,
 					  _(default_branch_name_advice), ret);
@@ -1222,7 +1237,7 @@ int ref_transaction_maybe_set_rejected(struct ref_transaction *transaction,
 		return 0;
 
 	if (!transaction->rejections)
-		BUG("transaction not inititalized with failure support");
+		BUG("transaction not initialized with failure support");
 
 	/*
 	 * Don't accept generic errors, since these errors are not user
@@ -1230,6 +1245,13 @@ int ref_transaction_maybe_set_rejected(struct ref_transaction *transaction,
 	 */
 	if (err == REF_TRANSACTION_ERROR_GENERIC)
 		return 0;
+
+	/*
+	 * Rejected refnames shouldn't be considered in the availability
+	 * checks, so remove them from the list.
+	 */
+	string_list_remove(&transaction->refnames,
+			   transaction->updates[update_idx]->refname, 0);
 
 	transaction->updates[update_idx]->rejection_err = err;
 	ALLOC_GROW(transaction->rejections->update_indices,
@@ -3315,6 +3337,8 @@ const char *ref_transaction_error_msg(enum ref_transaction_error err)
 		return "invalid new value provided";
 	case REF_TRANSACTION_ERROR_EXPECTED_SYMREF:
 		return "expected symref but found regular ref";
+	case REF_TRANSACTION_ERROR_CASE_CONFLICT:
+		return "reference conflict due to case-insensitive filesystem";
 	default:
 		return "unknown failure";
 	}

@@ -7,6 +7,7 @@
 #include "hash.h"
 #include "pathspec.h"
 #include "strbuf.h"
+#include "color.h"
 
 struct oidset;
 
@@ -125,6 +126,13 @@ struct diff_flags {
 	 */
 	unsigned recursive;
 	unsigned tree_in_recursive;
+
+	/*
+	 * Historically diff_tree_combined() overrides recursive to 1. To
+	 * suppress this behavior, set the flag below.
+	 * It has no effect if recursive is already set to 1.
+	 */
+	unsigned no_recursive_diff_tree_combined;
 
 	/* Affects the way how a file that is seemingly binary is treated. */
 	unsigned binary;
@@ -283,7 +291,7 @@ struct diff_options {
 	/* diff-filter bits */
 	unsigned int filter, filter_not;
 
-	int use_color;
+	enum git_colorbool use_color;
 
 	/* Number of context lines to generate in patch output. */
 	int context;
@@ -469,7 +477,7 @@ enum color_diff {
 	DIFF_FILE_NEW_BOLD = 22,
 };
 
-const char *diff_get_color(int diff_use_color, enum color_diff ix);
+const char *diff_get_color(enum git_colorbool diff_use_color, enum color_diff ix);
 #define diff_get_color_opt(o, ix) \
 	diff_get_color((o)->use_color, ix)
 
