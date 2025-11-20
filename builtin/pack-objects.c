@@ -831,15 +831,14 @@ static enum write_one_status write_one(struct hashfile *f,
 	return WRITE_ONE_WRITTEN;
 }
 
-static int mark_tagged(const char *path UNUSED, const char *referent UNUSED, const struct object_id *oid,
-		       int flag UNUSED, void *cb_data UNUSED)
+static int mark_tagged(const struct reference *ref, void *cb_data UNUSED)
 {
 	struct object_id peeled;
-	struct object_entry *entry = packlist_find(&to_pack, oid);
+	struct object_entry *entry = packlist_find(&to_pack, ref->oid);
 
 	if (entry)
 		entry->tagged = 1;
-	if (!peel_iterated_oid(the_repository, oid, &peeled)) {
+	if (!reference_get_peeled_oid(the_repository, ref, &peeled)) {
 		entry = packlist_find(&to_pack, &peeled);
 		if (entry)
 			entry->tagged = 1;
@@ -1706,8 +1705,8 @@ static int want_object_in_pack_mtime(const struct object_id *oid,
 				     uint32_t found_mtime)
 {
 	int want;
+	struct packfile_list_entry *e;
 	struct odb_source *source;
-	struct list_head *pos;
 
 	if (!exclude && local) {
 		/*
@@ -1748,12 +1747,11 @@ static int want_object_in_pack_mtime(const struct object_id *oid,
 		}
 	}
 
-	list_for_each(pos, packfile_store_get_packs_mru(the_repository->objects->packfiles)) {
-		struct packed_git *p = list_entry(pos, struct packed_git, mru);
+	for (e = the_repository->objects->packfiles->packs.head; e; e = e->next) {
+		struct packed_git *p = e->pack;
 		want = want_object_in_pack_one(p, oid, exclude, found_pack, found_offset, found_mtime);
 		if (!exclude && want > 0)
-			list_move(&p->mru,
-				  packfile_store_get_packs_mru(the_repository->objects->packfiles));
+			packfile_list_prepend(&the_repository->objects->packfiles->packs, p);
 		if (want != -1)
 			return want;
 	}
@@ -3306,13 +3304,13 @@ static void add_tag_chain(const struct object_id *oid)
 	}
 }
 
-static int add_ref_tag(const char *tag UNUSED, const char *referent UNUSED, const struct object_id *oid,
-		       int flag UNUSED, void *cb_data UNUSED)
+static int add_ref_tag(const struct reference *ref, void *cb_data UNUSED)
 {
 	struct object_id peeled;
 
-	if (!peel_iterated_oid(the_repository, oid, &peeled) && obj_is_packed(&peeled))
-		add_tag_chain(oid);
+	if (!reference_get_peeled_oid(the_repository, ref, &peeled) &&
+	    obj_is_packed(&peeled))
+		add_tag_chain(ref->oid);
 	return 0;
 }
 
@@ -4389,27 +4387,27 @@ static void add_unreachable_loose_objects(struct rev_info *revs)
 
 static int has_sha1_pack_kept_or_nonlocal(const struct object_id *oid)
 {
-	struct packfile_store *packs = the_repository->objects->packfiles;
-	static struct packed_git *last_found = (void *)1;
+	static struct packed_git *last_found = NULL;
 	struct packed_git *p;
 
-	p = (last_found != (void *)1) ? last_found :
-					packfile_store_get_packs(packs);
+	if (last_found && find_pack_entry_one(oid, last_found))
+		return 1;
 
-	while (p) {
-		if ((!p->pack_local || p->pack_keep ||
-				p->pack_keep_in_core) &&
-			find_pack_entry_one(oid, p)) {
+	repo_for_each_pack(the_repository, p) {
+		/*
+		 * We have already checked `last_found`, so there is no need to
+		 * re-check here.
+		 */
+		if (p == last_found)
+			continue;
+
+		if ((!p->pack_local || p->pack_keep || p->pack_keep_in_core) &&
+		    find_pack_entry_one(oid, p)) {
 			last_found = p;
 			return 1;
 		}
-		if (p == last_found)
-			p = packfile_store_get_packs(packs);
-		else
-			p = p->next;
-		if (p == last_found)
-			p = p->next;
 	}
+
 	return 0;
 }
 
@@ -4528,19 +4526,16 @@ static void record_recent_commit(struct commit *commit, void *data UNUSED)
 	oid_array_append(&recent_objects, &commit->object.oid);
 }
 
-static int mark_bitmap_preferred_tip(const char *refname,
-				     const char *referent UNUSED,
-				     const struct object_id *oid,
-				     int flags UNUSED,
-				     void *data UNUSED)
+static int mark_bitmap_preferred_tip(const struct reference *ref, void *data UNUSED)
 {
+	const struct object_id *maybe_peeled = ref->oid;
 	struct object_id peeled;
 	struct object *object;
 
-	if (!peel_iterated_oid(the_repository, oid, &peeled))
-		oid = &peeled;
+	if (!reference_get_peeled_oid(the_repository, ref, &peeled))
+		maybe_peeled = &peeled;
 
-	object = parse_object_or_die(the_repository, oid, refname);
+	object = parse_object_or_die(the_repository, maybe_peeled, ref->name);
 	if (object->type == OBJ_COMMIT)
 		object->flags |= NEEDS_BITMAP;
 
