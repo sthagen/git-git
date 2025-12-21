@@ -20,6 +20,17 @@ UI, Workflows & Features
 
  * Add a new manual that describes the data model.
 
+ * "git fast-import" learns "--strip-if-invalid" option to drop
+   invalid cryptographic signature from objects.
+
+ * The use of "revision" (a connected set of commits) has been
+   clarified in the "git replay" documentation.
+
+ * A help message from "git branch" now mentions "git help" instead of
+   "man" when suggesting to read some documentation.
+
+ * "git repo struct" learned to take "-z" as a synonym to "--format=nul".
+
 
 Performance, Internal Implementation, Development Support etc.
 --------------------------------------------------------------
@@ -37,6 +48,24 @@ Performance, Internal Implementation, Development Support etc.
 
  * A part of code paths that deals with loose objects has been cleaned
    up.
+
+ * "make strip" has been taught to strip "scalar" as well as "git".
+
+ * Dockerised jobs at the GitHub Actions CI have been taught to show
+   more details of failed tests.
+
+ * Code refactoring around object database sources.
+
+ * Halve the memory consumed by artificial filepairs created during
+   "git diff --find-copioes-harder", also making the operation run
+   faster.
+
+ * The "git_istream" abstraction has been revamped to make it easier
+   to interface with pluggable object database design.
+
+ * Rewrite the only use of "mktemp()" that is subject to TOCTOU race
+   and Stop using the insecure "mktemp()" function.
+   (merge 10bba537c4 rs/ban-mktemp later to maint).
 
 
 Fixes since v2.52
@@ -105,8 +134,57 @@ Fixes since v2.52
  * Various issues detected by Asan have been corrected.
    (merge a031b6181a jk/asan-bonanza later to maint).
 
+ * "git config get --path" segfaulted on an ":(optional)path" that
+   does not exist, which has been corrected.
+   (merge 0bd16856ff jc/optional-path later to maint).
+
+ * The "--committer-date-is-author-date" option of "git am/rebase" is
+   a misguided one.  The documentation is updated to discourage its
+   use.
+   (merge fbf3d0669f kh/doc-committer-date-is-author-date later to maint).
+
+ * The option help text given by "git config unset -h" described
+   the "--all" option to "replace", not "unset", multiple variables,
+   which has been corrected.
+   (merge 18bf67b753 rs/config-unset-opthelp-fix later to maint).
+
+ * The error message given by "git config set", when the variable
+   being updated has more than one values defined, used old style "git
+   config" syntax with an incorrect option in its hint, both of which
+   have been corrected.
+   (merge df963f0df4 rs/config-set-multi-error-message-fix later to maint).
+
+ * "git replay" forgot to omit the "gpgsig-sha256" extended header
+   from the resulting commit the same way it omits "gpgsig", which has
+   been corrected.
+   (merge 9f3a115087 pw/replay-exclude-gpgsig-fix later to maint).
+
+ * A few tests have been updated to work under the shell compatible
+   mode of zsh.
+   (merge a92f243a94 bc/zsh-testsuite later to maint).
+
+ * The way patience diff finds LCS has been optimized.
+   (merge c7e3b8085b yc/xdiff-patience-optim later to maint).
+
+ * Recent optimization to "last-modified" command introduced use of
+   uninitialized block of memory, which has been corrected.
+   (merge fe4e60759b tc/last-modified-active-paths-optimization later to maint).
+
+ * "git last-modified" used to mishandle "--" to mark the beginning of
+   pathspec, which has been corrected.
+   (merge 05491b90ce js/last-modified-with-sparse-checkouts later to maint).
+
+ * Emulation code clean-up.
+   (merge 42aa7603aa gf/win32-pthread-cond-init later to maint).
+
  * Other code cleanup, docfix, build fix, etc.
    (merge 46207a54cc qj/doc-http-bad-want-response later to maint).
    (merge df90eccd93 kh/doc-commit-extra-references later to maint).
    (merge f18aa68861 rs/xmkstemp-simplify later to maint).
    (merge fddba8f737 ja/doc-synopsis-style later to maint).
+   (merge 22ce0cb639 en/xdiff-cleanup-2 later to maint).
+   (merge 8ef7355a8f je/doc-pull later to maint).
+   (merge 48176f953f jc/capability-leak later to maint).
+   (merge 8cbbdc92f7 kh/doc-pre-commit-fix later to maint).
+   (merge d4bc39a4d9 mh/doc-config-gui-gcwarning later to maint).
+   (merge 41d425008a kh/doc-send-email-paragraph-fix later to maint).

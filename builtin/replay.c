@@ -73,7 +73,7 @@ static struct commit *create_commit(struct repository *repo,
 	const char *message = repo_logmsg_reencode(repo, based_on,
 						   NULL, out_enc);
 	const char *orig_message = NULL;
-	const char *exclude_gpgsig[] = { "gpgsig", NULL };
+	const char *exclude_gpgsig[] = { "gpgsig", "gpgsig-sha256", NULL };
 
 	commit_list_insert(parent, &parents);
 	extra = read_commit_extra_headers(based_on, exclude_gpgsig);
@@ -366,7 +366,7 @@ int cmd_replay(int argc,
 	const char *const replay_usage[] = {
 		N_("(EXPERIMENTAL!) git replay "
 		   "([--contained] --onto <newbase> | --advance <branch>) "
-		   "[--ref-action[=<mode>]] <revision-range>..."),
+		   "[--ref-action[=<mode>]] <revision-range>"),
 		NULL
 	};
 	struct option replay_options[] = {
