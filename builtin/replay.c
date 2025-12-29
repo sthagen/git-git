@@ -377,7 +377,7 @@ int cmd_replay(int argc,
 			   N_("revision"),
 			   N_("replay onto given commit")),
 		OPT_BOOL(0, "contained", &contained,
-			 N_("advance all branches contained in revision-range")),
+			 N_("update all branches that point at commits in <revision-range>")),
 		OPT_STRING(0, "ref-action", &ref_action,
 			   N_("mode"),
 			   N_("control ref update behavior (update|print)")),
@@ -454,6 +454,9 @@ int cmd_replay(int argc,
 	determine_replay_mode(repo, &revs.cmdline, onto_name, &advance_name,
 			      &onto, &update_refs);
 
+	if (!onto) /* FIXME: Should handle replaying down to root commit */
+		die("Replaying down to root commit is not supported yet!");
+
 	/* Build reflog message */
 	if (advance_name_opt)
 		strbuf_addf(&reflog_msg, "replay --advance %s", advance_name_opt);
@@ -471,9 +474,6 @@ int cmd_replay(int argc,
 			goto cleanup;
 		}
 	}
-
-	if (!onto) /* FIXME: Should handle replaying down to root commit */
-		die("Replaying down to root commit is not supported yet!");
 
 	if (prepare_revision_walk(&revs) < 0) {
 		ret = error(_("error preparing revisions"));

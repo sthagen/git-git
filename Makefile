@@ -95,7 +95,8 @@ include shared.mak
 # and LDFLAGS appropriately.
 #
 # Define NO_DARWIN_PORTS if you are building on Darwin/Mac OS X,
-# have DarwinPorts installed in /opt/local, but don't want GIT to
+# have DarwinPorts (which is an old name for MacPorts) installed
+# in /opt/local, but don't want GIT to
 # link against any libraries installed there.  If defined you may
 # specify your own (or DarwinPort's) include directories and
 # library directories by defining CFLAGS and LDFLAGS appropriately.
@@ -981,7 +982,7 @@ SANITIZE_LEAK =
 SANITIZE_ADDRESS =
 
 # For the 'coccicheck' target
-SPATCH_INCLUDE_FLAGS = --all-includes
+SPATCH_INCLUDE_FLAGS = --all-includes $(addprefix -I ,compat ewah refs sha256 trace2 win32 xdiff)
 SPATCH_FLAGS =
 SPATCH_TEST_FLAGS =
 
@@ -3522,7 +3523,7 @@ else
 COCCICHECK_PATCH_MUST_BE_EMPTY_FILES = $(COCCICHECK_PATCHES_INTREE)
 endif
 coccicheck: $(COCCICHECK_PATCH_MUST_BE_EMPTY_FILES)
-	! grep -q ^ $(COCCICHECK_PATCH_MUST_BE_EMPTY_FILES) /dev/null
+	! grep ^ $(COCCICHECK_PATCH_MUST_BE_EMPTY_FILES) /dev/null
 
 # See contrib/coccinelle/README
 coccicheck-pending: coccicheck-test
