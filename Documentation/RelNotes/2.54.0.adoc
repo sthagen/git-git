@@ -60,6 +60,14 @@ UI, Workflows & Features
  * "git config list" is taught to show the values interpreted for
    specific type with "--type=<X>" option.
 
+ * "git add <submodule>" has been taught to honor
+   submodule.<name>.ignore that is set to "all" (and requires "git add
+   -f" to override it).
+
+ * Hook commands are now allowed to be defined (possibly centrally)
+   in the configuration files, and run multiple of them for the same
+   hook event.
+
 
 Performance, Internal Implementation, Development Support etc.
 --------------------------------------------------------------
@@ -142,6 +150,15 @@ Performance, Internal Implementation, Development Support etc.
  * The core.attributesfile is intended to be set per repository, but
    were kept track of by a single global variable in-core, which has
    been corrected by moving it to per-repository data structure.
+
+ * Use the hook API to replace ad-hoc invocation of hook scripts via
+   the run_command() API.
+
+ * Code refactoring around refs-for-each-* API functions.
+
+ * The parse-options API learned to notice an options[] array with
+   duplicated long options.
+   (merge 237e520d81 rs/parse-options-duplicated-long-options later to maint).
 
 
 Fixes since v2.53
@@ -234,6 +251,26 @@ Fixes since v2.53
    to access pack data by "fsck" has been updated to avoid this.
    (merge 13eb65d366 ps/fsck-stream-from-the-right-object-instance later to maint).
 
+ * "git log --graph --stat" did not count the display width of colored
+   graph part of its own output correctly, which has been corrected.
+   (merge 064b869efc lp/diff-stat-utf8-display-width-fix later to maint).
+
+ * The configuration variable format.noprefix did not behave as a
+   proper boolean variable, which has now been fixed and documented.
+   (merge ea3a62c40e kh/format-patch-noprefix-is-boolean later to maint).
+
+ * CI fix.
+   (merge eb35167dd4 ps/ci-reduce-gitlab-envsize later to maint).
+
+ * "git diff --no-index --find-object=<object-name>" outside a
+   repository of course wouldn't be able to find the object and died
+   while parsing the command line.  The command is made to die in a
+   bit more user-friendly way.
+   (merge b0ddc7947c mm/diff-no-index-find-object later to maint).
+
+ * Fix typo-induced breakages in fsmonitor-watchman sample hook.
+   (merge 41366e4677 pt/fsmonitor-watchman-sample-fix later to maint).
+
  * Other code cleanup, docfix, build fix, etc.
    (merge d79fff4a11 jk/remote-tracking-ref-leakfix later to maint).
    (merge 7a747f972d dd/t5403-modernise later to maint).
@@ -264,3 +301,6 @@ Fixes since v2.53
    (merge ed84bc1c0d kh/doc-patch-id-4 later to maint).
    (merge 7451864bfa sc/pack-redundant-leakfix later to maint).
    (merge f87593ab1a cx/fetch-display-ubfix later to maint).
+   (merge a66c8c7f91 jk/repo-structure-cleanup later to maint).
+   (merge 5ee8782f87 ss/test-that-that-typofix later to maint).
+   (merge f31b322008 fp/t3310-test-path-is-helpers later to maint).

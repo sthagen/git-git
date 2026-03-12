@@ -119,7 +119,7 @@ static int list_cmds(const char *spec)
 	}
 	for (size_t i = 0; i < list.nr; i++)
 		puts(list.items[i].string);
-	string_list_clear(&list, 0);
+	string_list_clear(&list, 1);
 	return 0;
 }
 
@@ -587,7 +587,7 @@ static struct cmd_struct commands[] = {
 	{ "hash-object", cmd_hash_object },
 	{ "help", cmd_help },
 	{ "history", cmd_history, RUN_SETUP },
-	{ "hook", cmd_hook, RUN_SETUP },
+	{ "hook", cmd_hook, RUN_SETUP_GENTLY },
 	{ "index-pack", cmd_index_pack, RUN_SETUP_GENTLY | NO_PARSEOPT },
 	{ "init", cmd_init_db },
 	{ "init-db", cmd_init_db },
