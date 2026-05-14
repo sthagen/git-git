@@ -1,0 +1,64 @@
+Git v2.55 Release Notes
+=======================
+
+UI, Workflows & Features
+------------------------
+
+ * Hook scripts defined via the configuration system can now be
+   configured to run in parallel.
+
+ * The userdiff driver for the Scheme language has been extended to
+   cover other Lisp dialects.
+
+ * Terminal control sequences coming over the sideband while talking
+   to a remote repository are mostly disabled by default, except for
+   ANSI color escape sequences.
+
+
+Performance, Internal Implementation, Development Support etc.
+--------------------------------------------------------------
+
+ * Promisor remote handling has been refactored and fixed in
+   preparation for auto-configuration of advertised remotes.
+
+ * Rust support is enabled by default (but still allows opting out) in
+   some future version of Git.
+
+
+Fixes since v2.54
+-----------------
+
+ * Code clean-up to use the right instance of a repository instance in
+   calls inside refs subsystem.
+   (merge 57c590feb9 sp/refs-reduce-the-repository later to maint).
+
+ * The check that implements the logic to see if an in-core cache-tree
+   is fully ready to write out a tree object was broken, which has
+   been corrected.
+   (merge 521731213c dl/cache-tree-fully-valid-fix later to maint).
+
+ * The test suite harness and many individual test scripts have been
+   updated to work correctly when 'set -e' is in effect, which helps
+   detect misspelled test commands.
+   (merge ffe8005b9d ps/test-set-e-clean later to maint).
+
+ * Revert a recent change that introduced a regression to help mksh users.
+   (merge 8b44deebaf jk/revert-aa-reap-transport-child-processes later to maint).
+
+ * Other code cleanup, docfix, build fix, etc.
+   (merge 80f4b802e9 ja/doc-difftool-synopsis-style later to maint).
+   (merge b96490241e jc/doc-timestamps-in-stat later to maint).
+
+ * Update various GitHub Actions versions.
+   (merge 4a6ed9d09f js/ci-github-actions-update later to maint).
+
+ * Avoid hitting the pathname limit for socks proxy socket during the
+   test..
+   (merge b33bea27a2 js/t5564-socks-use-short-path later to maint).
+
+ * Test fix.
+   (merge 66ae1a48ec jc/t5551-fix-expensive later to maint).
+
+ * To help Windows 10 installations, avoid removing files whose
+   contents are still mmap()'ed.
+   (merge 4bb086cfa2 js/maintenance-fix-deadlock-on-win10 later to maint).
