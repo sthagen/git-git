@@ -64,6 +64,40 @@ Performance, Internal Implementation, Development Support etc.
 
  * "git merge-base" optimization.
 
+ * The limit_list() function that is one of the core part of the
+   revision traversal infrastructure has been optimized by replacing
+   its use of linear list with priority queue.
+
+ * In a lazy clone, "git cherry" and "git grep" often fetch necessary
+   blob objects one by one from promisor remotes.  It has been corrected
+   to collect necessary object names and fetch them in bulk to gain
+   reasonable performance.
+
+ * The logic to determine that branches in an octopus merge are
+   independent has been optimized.
+
+ * The consistency checks for the files reference backend have been updated
+   to skip lock files earlier, avoiding unnecessary parsing of
+   intermediate files.
+
+ * The negotiation tip options in "git fetch" have been reworked to
+   allow requiring certain refs to be sent as "have" lines, and to
+   restrict negotiation to a specific set of refs.
+
+ * The repacking code has been refactored and compaction of MIDX layers
+   have been implemented, and incremental strategy that does not require
+   all-into-one repacking has been introduced.
+
+ * ODB transaction interface is being reworked to explicitly handle
+   object writes.
+
+ * Add a new odb "in-memory" source that is meant to only hold
+   tentative objects (like the virtual blob object that represents the
+   working tree file used by "git blame").
+
+ * Many uses of the_repository has been updated to use a more
+   appropriate struct repository instance in setup.c codepath.
+
 
 Fixes since v2.54
 -----------------
@@ -184,3 +218,9 @@ Fixes since v2.54
    (merge b635fd0725 kh/doc-log-decorate-list later to maint).
    (merge 65ea197dca jk/commit-sign-overflow-fix later to maint).
    (merge 3ccb16052a jk/apply-leakfix later to maint).
+   (merge 5e6e8dc786 tb/pseudo-merge-bugfixes later to maint).
+   (merge 6d09e798bc pb/doc-diff-format-updates later to maint).
+   (merge 34a891a2d3 rs/trailer-fold-optim later to maint).
+   (merge 499f9048e0 ps/t3903-cover-stash-include-untracked later to maint).
+   (merge b56ab270aa jk/sq-dequote-cleanup later to maint).
+   (merge 29d9fdcf10 rs/use-builtin-add-overflow-explicitly-on-clang later to maint).
