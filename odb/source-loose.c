@@ -196,8 +196,8 @@ out:
 			oi->typep = NULL;
 		if (oi->delta_base_oid)
 			oidclr(oi->delta_base_oid, loose->base.odb->repo->hash_algo);
-		if (!ret)
-			oi->whence = OI_LOOSE;
+		if (oi->source_infop && !ret)
+			oi->source_infop->source = &loose->base;
 	}
 
 	return ret;
@@ -638,7 +638,8 @@ static int odb_source_loose_write_object_stream(struct odb_source *source,
 }
 
 static int odb_source_loose_begin_transaction(struct odb_source *source UNUSED,
-					      struct odb_transaction **out UNUSED)
+					      struct odb_transaction **out UNUSED,
+					      enum odb_transaction_flags flags UNUSED)
 {
 	/* TODO: this is a known omission that we'll want to address eventually. */
 	return error("loose source does not support transactions");
@@ -664,10 +665,12 @@ static void odb_source_loose_clear_cache(struct odb_source_loose *loose)
 	       sizeof(loose->subdir_seen));
 }
 
-static void odb_source_loose_reprepare(struct odb_source *source)
+static void odb_source_loose_prepare(struct odb_source *source,
+				     enum odb_prepare_flags flags)
 {
 	struct odb_source_loose *loose = odb_source_loose_downcast(source);
-	odb_source_loose_clear_cache(loose);
+	if (flags & ODB_PREPARE_FLUSH_CACHES)
+		odb_source_loose_clear_cache(loose);
 }
 
 static void odb_source_loose_close(struct odb_source *source UNUSED)
@@ -708,7 +711,7 @@ struct odb_source_loose *odb_source_loose_new(struct object_database *odb,
 
 	loose->base.free = odb_source_loose_free;
 	loose->base.close = odb_source_loose_close;
-	loose->base.reprepare = odb_source_loose_reprepare;
+	loose->base.prepare = odb_source_loose_prepare;
 	loose->base.read_object_info = odb_source_loose_read_object_info;
 	loose->base.read_object_stream = odb_source_loose_read_object_stream;
 	loose->base.for_each_object = odb_source_loose_for_each_object;

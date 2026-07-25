@@ -760,12 +760,12 @@ int add_to_index(struct index_state *istate, const char *path, struct stat *st, 
 	 * case of the file being added to the repository matches (is folded into) the existing
 	 * entry's directory case.
 	 */
-	if (ignore_case) {
+	if (repo_ignore_case(the_repository)) {
 		adjust_dirname_case(istate, ce->name);
 	}
 	if (!(flags & ADD_CACHE_RENORMALIZE)) {
 		alias = index_file_exists(istate, ce->name,
-					  ce_namelen(ce), ignore_case);
+					  ce_namelen(ce), repo_ignore_case(the_repository));
 		if (alias &&
 		    !ce_stage(alias) &&
 		    !ie_match_stat(istate, alias, st, ce_option)) {
@@ -786,7 +786,7 @@ int add_to_index(struct index_state *istate, const char *path, struct stat *st, 
 	} else
 		set_object_name_for_intent_to_add_entry(ce);
 
-	if (ignore_case && alias && different_name(ce, alias))
+	if (repo_ignore_case(the_repository) && alias && different_name(ce, alias))
 		ce = create_alias_ce(istate, ce, alias);
 	ce->ce_flags |= CE_ADDED;
 
@@ -1722,7 +1722,7 @@ static int verify_hdr(const struct cache_header *hdr, unsigned long size)
 	if (oideq(&oid, null_oid(the_hash_algo)))
 		return 0;
 
-	the_hash_algo->init_fn(&c);
+	git_hash_init(&c, the_hash_algo);
 	git_hash_update(&c, hdr, size - the_hash_algo->rawsz);
 	git_hash_final(hash, &c);
 	if (!hasheq(hash, start, the_repository->hash_algo))
@@ -2957,7 +2957,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	 */
 	if (offset && record_eoie()) {
 		CALLOC_ARRAY(eoie_c, 1);
-		the_hash_algo->init_fn(eoie_c);
+		git_hash_init(eoie_c, the_hash_algo);
 	}
 
 	/*
@@ -3404,13 +3404,15 @@ out:
  */
 int repo_read_index_unmerged(struct repository *repo)
 {
-	struct index_state *istate;
-	int i;
+	repo_read_index(repo);
+	return index_state_unmerged_to_stage0(repo->index);
+}
+
+int index_state_unmerged_to_stage0(struct index_state *istate)
+{
 	int unmerged = 0;
 
-	repo_read_index(repo);
-	istate = repo->index;
-	for (i = 0; i < istate->cache_nr; i++) {
+	for (unsigned int i = 0; i < istate->cache_nr; i++) {
 		struct cache_entry *ce = istate->cache[i];
 		struct cache_entry *new_ce;
 		int len;
@@ -3598,7 +3600,7 @@ static size_t read_eoie_extension(const char *mmap, size_t mmap_size)
 	 *	 "REUC" + <binary representation of M>)
 	 */
 	src_offset = offset;
-	the_hash_algo->init_fn(&c);
+	git_hash_init(&c, the_hash_algo);
 	while (src_offset < mmap_size - the_hash_algo->rawsz - EOIE_SIZE_WITH_HEADER) {
 		/* After an array of active_nr index entries,
 		 * there can be arbitrary number of extended
@@ -4013,6 +4015,7 @@ int add_files_to_cache(struct repository *repo, const char *prefix,
 		       const struct pathspec *pathspec, char *ps_matched,
 		       int include_sparse, int flags, int ignored_too )
 {
+	int inflight = !!repo->objects->transaction;
 	struct odb_transaction *transaction;
 	struct update_callback_data data;
 	struct rev_info rev;
@@ -4043,9 +4046,11 @@ int add_files_to_cache(struct repository *repo, const char *prefix,
 	 * This function is invoked from commands other than 'add', which
 	 * may not have their own transaction active.
 	 */
-	transaction = odb_transaction_begin(repo->objects);
+	if (!inflight)
+		odb_transaction_begin_or_die(repo->objects, &transaction, 0);
 	run_diff_files(&rev, DIFF_RACY_IS_MODIFIED);
-	odb_transaction_commit(transaction);
+	if (!inflight)
+		odb_transaction_commit(transaction);
 
 	release_revisions(&rev);
 	return !!data.add_errors;

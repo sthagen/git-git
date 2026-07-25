@@ -378,7 +378,7 @@ cleanup:
 	if (child_in)
 		fclose(child_in);
 	if (finish_command(&cp))
-		return 1;
+		result = 1;
 	if (child_out)
 		fclose(child_out);
 	return result;
@@ -946,8 +946,12 @@ static int config_to_packet_line(const char *key, const char *value,
 {
 	struct packet_reader *writer = data;
 
-	if (starts_with(key, "bundle."))
-		packet_write_fmt(writer->fd, "%s=%s", key, value);
+	if (starts_with(key, "bundle.")) {
+		if (value && *value)
+			packet_write_fmt(writer->fd, "%s=%s", key, value);
+		else
+			warning(_("config '%s' has no value"), key);
+	}
 
 	return 0;
 }

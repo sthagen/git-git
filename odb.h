@@ -8,6 +8,7 @@
 #include "thread-utils.h"
 
 struct cached_object_entry;
+struct list_objects_filter_options;
 struct odb_source_inmemory;
 struct packed_git;
 struct repository;
@@ -124,10 +125,22 @@ void odb_free(struct object_database *o);
  */
 void odb_close(struct object_database *o);
 
+enum odb_prepare_flags {
+	/*
+	 * Flush caches, reload alternates and then re-prepare each object
+	 * source so that new objects may become accessible.
+	 */
+	ODB_PREPARE_FLUSH_CACHES = (1 << 0),
+};
+
 /*
- * Clear caches, reload alternates and then reload object sources so that new
- * objects may become accessible.
+ * Prepare the object database for use. Calling this function is generally not
+ * needed, but can be useful in case the caller wants to pre-open individual
+ * sources.
  */
+void odb_prepare(struct object_database *o, enum odb_prepare_flags flags);
+
+/* Equivalent to `odb_prepare(o, ODB_PREPARE_FLUSH_CACHES)`. */
 void odb_reprepare(struct object_database *o);
 
 /*
@@ -248,33 +261,19 @@ int odb_pretend_object(struct object_database *odb,
 		       void *buf, size_t len, enum object_type type,
 		       struct object_id *oid);
 
-struct object_info {
-	/* Request */
-	enum object_type *typep;
-	size_t *sizep;
-	off_t *disk_sizep;
-	struct object_id *delta_base_oid;
-	void **contentp;
+/*
+ * Object database source information that can be used to uniquely identify an
+ * object and learn more about how exactly it is stored.
+ */
+struct odb_source_info {
+	/* The source that this object has been looked up from. */
+	struct odb_source *source;
 
 	/*
-	 * The time the given looked-up object has been last modified.
-	 *
-	 * Note: the mtime may be ambiguous in case the object exists multiple
-	 * times in the object database. It is thus _not_ recommended to use
-	 * this field outside of contexts where you would read every instance
-	 * of the object, like for example with `odb_for_each_object()`. As it
-	 * is impossible to say at the ODB level what the intent of the caller
-	 * is (e.g. whether to find the oldest or newest object), it is the
-	 * responsibility of the caller to disambiguate the mtimes.
+	 * Backend-specific information about the specific object. This can be
+	 * used for example to uniquely identify a given object in case it
+	 * exists multiple times.
 	 */
-	time_t *mtimep;
-
-	/* Response */
-	enum {
-		OI_CACHED,
-		OI_LOOSE,
-		OI_PACKED,
-	} whence;
 	union {
 		/*
 		 * struct {
@@ -295,6 +294,52 @@ struct object_info {
 			} type;
 		} packed;
 	} u;
+};
+
+/*
+ * The object info contains the query and response that is to be used for
+ * functions that end up reading object information. Callers are expected to
+ * populate pointers whose information they want to request.
+ */
+struct object_info {
+	/* The object type. */
+	enum object_type *typep;
+
+	/* The inflated object size in bytes. */
+	size_t *sizep;
+
+	/* The object size as stored on disk. */
+	off_t *disk_sizep;
+
+	/*
+	 * The base the object is deltified against, in case it is stored as a
+	 * delta.
+	 */
+	struct object_id *delta_base_oid;
+
+	/* The object contents. Ownership of memory goes over to the caller. */
+	void **contentp;
+
+	/*
+	 * The time the given looked-up object has been last modified.
+	 *
+	 * Note: the mtime may be ambiguous in case the object exists multiple
+	 * times in the object database. It is thus _not_ recommended to use
+	 * this field outside of contexts where you would read every instance
+	 * of the object, like for example with `odb_for_each_object()`. As it
+	 * is impossible to say at the ODB level what the intent of the caller
+	 * is (e.g. whether to find the oldest or newest object), it is the
+	 * responsibility of the caller to disambiguate the mtimes.
+	 */
+	time_t *mtimep;
+
+	/*
+	 * Backend-specific information that tells the caller where exactly an
+	 * object was looked up from. This information should help disambiguate
+	 * object lookups in case the same object exists in multiple sources,
+	 * or multiple times in the same source.
+	 */
+	struct odb_source_info *source_infop;
 };
 
 /*
@@ -458,6 +503,17 @@ struct odb_for_each_object_options {
 	 */
 	const struct object_id *prefix;
 	size_t prefix_hex_len;
+
+	/*
+	 * Optional object filter that allows backends to skip yielding
+	 * objects that are excluded by the filter as an optimization. The
+	 * filter is a best-effort hint: backends may use it to skip
+	 * excluded objects (e.g. by consulting a reachability bitmap), but
+	 * are also free to ignore it entirely and yield every object. As a
+	 * consequence, callers must re-apply the filter on yielded objects
+	 * if they require strict filtering semantics.
+	 */
+	const struct list_objects_filter_options *filter;
 };
 
 /*

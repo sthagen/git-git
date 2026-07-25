@@ -1538,7 +1538,7 @@ static int add_packed_commits(const struct object_id *oid,
 	struct object_info oi = OBJECT_INFO_INIT;
 
 	oi.typep = &type;
-	if (packed_object_info(pack, offset, &oi) < 0)
+	if (packed_object_info(NULL, pack, offset, &oi) < 0)
 		die(_("unable to get type of object %s"), oid_to_hex(oid));
 
 	return add_packed_commits_oi(oid, &oi, data);
@@ -1653,6 +1653,7 @@ static void compute_reachable_generation_numbers(
 {
 	int i;
 	struct commit_list *list = NULL;
+	intmax_t steps = 0;
 
 	for (i = 0; i < info->commits->nr; i++) {
 		struct commit *c = info->commits->items[i];
@@ -1671,6 +1672,7 @@ static void compute_reachable_generation_numbers(
 			int all_parents_computed = 1;
 			timestamp_t max_gen = 0;
 
+			steps++;
 			for (parent = current->parents; parent; parent = parent->next) {
 				repo_parse_commit(info->r, parent->item);
 				gen = info->get_generation(parent->item, info->data);
@@ -1694,6 +1696,9 @@ static void compute_reachable_generation_numbers(
 			}
 		}
 	}
+
+	trace2_data_intmax("commit-graph", info->r,
+			   "generation-dfs-steps", steps);
 }
 
 static timestamp_t get_topo_level(struct commit *c, void *data)
@@ -2605,7 +2610,7 @@ int write_commit_graph(struct odb_source *source,
 
 	g = prepare_commit_graph(ctx.r);
 	for (struct commit_graph *chain = g; chain; chain = chain->base_graph)
-		g->topo_levels = &topo_levels;
+		chain->topo_levels = &topo_levels;
 
 	if (flags & COMMIT_GRAPH_WRITE_BLOOM_FILTERS)
 		ctx.changed_paths = 1;

@@ -35,7 +35,7 @@ test_systemd_analyze_verify () {
 }
 
 test_expect_success 'help text' '
-	test_expect_code 129 git maintenance -h >actual &&
+	git maintenance -h >actual &&
 	test_grep "usage: git maintenance <subcommand>" actual &&
 	test_expect_code 129 git maintenance barf 2>err &&
 	test_grep "unknown subcommand: \`barf'\''" err &&
@@ -305,7 +305,7 @@ test_expect_success 'prefetch multiple remotes' '
 	test_cmp_rev refs/remotes/remote2/two refs/prefetch/remotes/remote2/two &&
 
 	git log --oneline --decorate --all >log &&
-	! grep "prefetch" log &&
+	test_grep ! "prefetch" log &&
 
 	test_when_finished git config --unset remote.remote1.skipFetchAll &&
 	git config remote.remote1.skipFetchAll true &&
@@ -395,15 +395,15 @@ test_expect_success 'maintenance.loose-objects.batchSize' '
 
 	GIT_PROGRESS_DELAY=0 \
 	git -C loose-batch maintenance run --no-quiet --task=loose-objects 2>err &&
-	grep "Enumerating objects: 50, done." err &&
+	test_grep "Enumerating objects: 50, done." err &&
 
 	GIT_PROGRESS_DELAY=0 \
 	git -C loose-batch maintenance run --no-quiet --task=loose-objects 2>err &&
-	grep "Enumerating objects: 50, done." err &&
+	test_grep "Enumerating objects: 50, done." err &&
 
 	GIT_PROGRESS_DELAY=0 \
 	git -C loose-batch maintenance run --no-quiet --task=loose-objects 2>err &&
-	grep "Enumerating objects: 2, done." err &&
+	test_grep "Enumerating objects: 2, done." err &&
 
 	GIT_PROGRESS_DELAY=0 \
 	git -C loose-batch maintenance run --no-quiet --task=loose-objects 2>err &&
@@ -461,36 +461,42 @@ test_expect_success 'incremental-repack task' '
 '
 
 test_expect_success EXPENSIVE 'incremental-repack 2g limit' '
-	test_config core.compression 0 &&
+	test_when_finished rm -rf expensive-repo &&
+	git init expensive-repo &&
+	(
+		cd expensive-repo &&
+		git config set core.compression 0 &&
+		git config set maintenance.auto false &&
 
-	for i in $(test_seq 1 5)
-	do
-		test-tool genrandom foo$i $((512 * 1024 * 1024 + 1)) >>big ||
-		return 1
-	done &&
-	git add big &&
-	git commit -qm "Add big file (1)" &&
+		for i in $(test_seq 1 5)
+		do
+			test-tool genrandom foo$i $((512 * 1024 * 1024 + 1)) >>big ||
+			return 1
+		done &&
+		git add big &&
+		git commit -qm "Add big file (1)" &&
 
-	# ensure any possible loose objects are in a pack-file
-	git maintenance run --task=loose-objects &&
+		# ensure any possible loose objects are in a pack-file
+		git maintenance run --task=loose-objects &&
 
-	rm big &&
-	for i in $(test_seq 6 10)
-	do
-		test-tool genrandom foo$i $((512 * 1024 * 1024 + 1)) >>big ||
-		return 1
-	done &&
-	git add big &&
-	git commit -qm "Add big file (2)" &&
+		rm big &&
+		for i in $(test_seq 6 10)
+		do
+			test-tool genrandom foo$i $((512 * 1024 * 1024 + 1)) >>big ||
+			return 1
+		done &&
+		git add big &&
+		git commit -qm "Add big file (2)" &&
 
-	# ensure any possible loose objects are in a pack-file
-	git maintenance run --task=loose-objects &&
+		# ensure any possible loose objects are in a pack-file
+		git maintenance run --task=loose-objects &&
 
-	# Now run the incremental-repack task and check the batch-size
-	GIT_TRACE2_EVENT="$(pwd)/run-2g.txt" git maintenance run \
-		--task=incremental-repack 2>/dev/null &&
-	test_subcommand git multi-pack-index repack \
-		 --no-progress --batch-size=2147483647 <run-2g.txt
+		# Now run the incremental-repack task and check the batch-size
+		GIT_TRACE2_EVENT="$(pwd)/run-2g.txt" git maintenance run \
+			--task=incremental-repack 2>/dev/null &&
+		test_subcommand git multi-pack-index repack \
+			--no-progress --batch-size=2147483647 <run-2g.txt
+	)
 '
 
 run_incremental_repack_and_verify () {
@@ -1067,7 +1073,7 @@ test_expect_success 'register and unregister' '
 	test_when_finished git config --global --unset-all maintenance.repo &&
 
 	test_must_fail git maintenance unregister 2>err &&
-	grep "is not registered" err &&
+	test_grep "is not registered" err &&
 	git maintenance unregister --force &&
 
 	git config --global --add maintenance.repo /existing1 &&
@@ -1101,11 +1107,11 @@ test_expect_success 'register and unregister' '
 	test_cmp before actual &&
 
 	test_must_fail git maintenance unregister 2>err &&
-	grep "is not registered" err &&
+	test_grep "is not registered" err &&
 	git maintenance unregister --force &&
 
 	test_must_fail git maintenance unregister --config-file ./other 2>err &&
-	grep "is not registered" err &&
+	test_grep "is not registered" err &&
 	git maintenance unregister --config-file ./other --force
 '
 
@@ -1194,9 +1200,9 @@ test_expect_success 'start from empty cron table' '
 	# start registers the repo
 	git config --get --global --fixed-value maintenance.repo "$(pwd)" &&
 
-	grep "for-each-repo --keep-going --config=maintenance.repo maintenance run --schedule=daily" cron.txt &&
-	grep "for-each-repo --keep-going --config=maintenance.repo maintenance run --schedule=hourly" cron.txt &&
-	grep "for-each-repo --keep-going --config=maintenance.repo maintenance run --schedule=weekly" cron.txt
+	test_grep "for-each-repo --keep-going --config=maintenance.repo maintenance run --schedule=daily" cron.txt &&
+	test_grep "for-each-repo --keep-going --config=maintenance.repo maintenance run --schedule=hourly" cron.txt &&
+	test_grep "for-each-repo --keep-going --config=maintenance.repo maintenance run --schedule=weekly" cron.txt
 '
 
 test_expect_success 'stop from existing schedule' '
@@ -1213,7 +1219,7 @@ test_expect_success 'stop from existing schedule' '
 test_expect_success 'start preserves existing schedule' '
 	echo "Important information!" >cron.txt &&
 	GIT_TEST_MAINT_SCHEDULER="crontab:test-tool crontab cron.txt" git maintenance start --scheduler=crontab &&
-	grep "Important information!" cron.txt
+	test_grep "Important information!" cron.txt
 '
 
 test_expect_success 'magic markers are correct' '
@@ -1228,8 +1234,8 @@ test_expect_success 'magic markers are correct' '
 test_expect_success 'stop preserves surrounding schedule' '
 	echo "Crucial information!" >>cron.txt &&
 	GIT_TEST_MAINT_SCHEDULER="crontab:test-tool crontab cron.txt" git maintenance stop &&
-	grep "Important information!" cron.txt &&
-	grep "Crucial information!" cron.txt
+	test_grep "Important information!" cron.txt &&
+	test_grep "Crucial information!" cron.txt
 '
 
 test_expect_success 'start and stop macOS maintenance' '
@@ -1259,7 +1265,7 @@ test_expect_success 'start and stop macOS maintenance' '
 	do
 		PLIST="$pfx/Library/LaunchAgents/org.git-scm.git.$frequency.plist" &&
 		test_xmllint "$PLIST" &&
-		grep schedule=$frequency "$PLIST" &&
+		test_grep schedule=$frequency "$PLIST" &&
 		echo "bootout gui/[UID] $PLIST" >>expect &&
 		echo "bootstrap gui/[UID] $PLIST" >>expect || return 1
 	done &&
@@ -1316,7 +1322,7 @@ test_expect_success 'start and stop Windows maintenance' '
 
 	for frequency in hourly daily weekly
 	do
-		grep "/create /tn Git Maintenance ($frequency) /f /xml" args &&
+		test_grep "/create /tn Git Maintenance ($frequency) /f /xml" args &&
 		file=$(ls .git/schedule_${frequency}*.xml) &&
 		test_xmllint "$file" || return 1
 	done &&
@@ -1355,8 +1361,8 @@ test_expect_success 'start and stop Linux/systemd maintenance' '
 	test_systemd_analyze_verify "systemd/user/git-maintenance@daily.service" &&
 	test_systemd_analyze_verify "systemd/user/git-maintenance@weekly.service" &&
 
-	grep "core.askPass=true" "systemd/user/git-maintenance@.service" &&
-	grep "credential.interactive=false" "systemd/user/git-maintenance@.service" &&
+	test_grep "core.askPass=true" "systemd/user/git-maintenance@.service" &&
+	test_grep "credential.interactive=false" "systemd/user/git-maintenance@.service" &&
 
 	printf -- "--user enable --now git-maintenance@%s.timer\n" hourly daily weekly >expect &&
 	test_cmp expect args &&

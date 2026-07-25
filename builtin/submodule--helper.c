@@ -550,11 +550,11 @@ static void create_default_gitdir_config(const char *submodule_name)
 
 	/* Case 2.4: If all the above failed, try a hash of the name as a last resort */
 	header_len = snprintf(header, sizeof(header), "blob %zu", strlen(submodule_name));
-	the_hash_algo->init_fn(&ctx);
-	the_hash_algo->update_fn(&ctx, header, header_len);
-	the_hash_algo->update_fn(&ctx, "\0", 1);
-	the_hash_algo->update_fn(&ctx, submodule_name, strlen(submodule_name));
-	the_hash_algo->final_fn(raw_name_hash, &ctx);
+	git_hash_init(&ctx, the_hash_algo);
+	git_hash_update(&ctx, header, header_len);
+	git_hash_update(&ctx, "\0", 1);
+	git_hash_update(&ctx, submodule_name, strlen(submodule_name));
+	git_hash_final(raw_name_hash, &ctx);
 	hash_to_hex_algop_r(hex_name_hash, raw_name_hash, the_hash_algo);
 	strbuf_reset(&gitdir_path);
 	repo_git_path_append(the_repository, &gitdir_path, "modules/%s", hex_name_hash);
@@ -2990,7 +2990,7 @@ static int module_update(int argc, const char **argv, const char *prefix,
 	struct option module_update_options[] = {
 		OPT__SUPER_PREFIX(&opt.super_prefix),
 		OPT__FORCE(&opt.force, N_("force checkout updates"), 0),
-		OPT_BOOL(0, "init", &opt.init,
+		OPT_BOOL('i', "init", &opt.init,
 			 N_("initialize uninitialized submodules before update")),
 		OPT_BOOL(0, "remote", &opt.remote,
 			 N_("use SHA-1 of submodule's remote tracking branch")),

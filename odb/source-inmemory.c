@@ -52,7 +52,8 @@ static void populate_object_info(struct odb_source_inmemory *source,
 		*oi->contentp = xmemdupz(object->buf, object->size);
 	if (oi->mtimep)
 		*oi->mtimep = 0;
-	oi->whence = OI_CACHED;
+	if (oi->source_infop)
+		oi->source_infop->source = &source->base;
 }
 
 static int odb_source_inmemory_read_object_info(struct odb_source *source,
@@ -304,7 +305,8 @@ static int odb_source_inmemory_freshen_object(struct odb_source *source,
 }
 
 static int odb_source_inmemory_begin_transaction(struct odb_source *source UNUSED,
-						 struct odb_transaction **out UNUSED)
+						 struct odb_transaction **out UNUSED,
+						 enum odb_transaction_flags flags UNUSED)
 {
 	return error("in-memory source does not support transactions");
 }
@@ -325,7 +327,8 @@ static void odb_source_inmemory_close(struct odb_source *source UNUSED)
 {
 }
 
-static void odb_source_inmemory_reprepare(struct odb_source *source UNUSED)
+static void odb_source_inmemory_prepare(struct odb_source *source UNUSED,
+					enum odb_prepare_flags flags UNUSED)
 {
 }
 
@@ -365,7 +368,7 @@ struct odb_source_inmemory *odb_source_inmemory_new(struct object_database *odb)
 
 	source->base.free = odb_source_inmemory_free;
 	source->base.close = odb_source_inmemory_close;
-	source->base.reprepare = odb_source_inmemory_reprepare;
+	source->base.prepare = odb_source_inmemory_prepare;
 	source->base.read_object_info = odb_source_inmemory_read_object_info;
 	source->base.read_object_stream = odb_source_inmemory_read_object_stream;
 	source->base.for_each_object = odb_source_inmemory_for_each_object;
