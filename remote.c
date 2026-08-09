@@ -150,8 +150,8 @@ static struct remote *make_remote(struct remote_state *remote_state,
 	ret->prune = -1;  /* unspecified */
 	ret->prune_tags = -1;  /* unspecified */
 	ret->name = xstrndup(name, len);
-	refspec_init_push(&ret->push);
-	refspec_init_fetch(&ret->fetch);
+	refspec_init_push(&ret->push, the_hash_algo);
+	refspec_init_fetch(&ret->fetch, the_hash_algo);
 	string_list_init_dup(&ret->server_options);
 	string_list_init_dup(&ret->negotiation_restrict);
 	string_list_init_dup(&ret->negotiation_include);
@@ -309,8 +309,15 @@ static struct rewrite *make_rewrite(struct rewrites *r,
 
 static void rewrites_release(struct rewrites *r)
 {
-	for (int i = 0; i < r->rewrite_nr; i++)
-		free((char *)r->rewrite[i]->base);
+	for (int i = 0; i < r->rewrite_nr; i++) {
+		struct rewrite *rewrite = r->rewrite[i];
+
+		free((char *)rewrite->base);
+		for (int j = 0; j < rewrite->instead_of_nr; j++)
+			free((char *)rewrite->instead_of[j].s);
+		free(rewrite->instead_of);
+		free(rewrite);
+	}
 	free(r->rewrite);
 	memset(r, 0, sizeof(*r));
 }
@@ -952,6 +959,17 @@ int remote_has_url(struct remote *remote, const char *url)
 struct strvec *push_url_of_remote(struct remote *remote)
 {
 	return remote->pushurl.nr ? &remote->pushurl : &remote->url;
+}
+
+static bool remote_has_push_url(struct remote *remote, const char *url)
+{
+	const struct strvec *push_urls = push_url_of_remote(remote);
+
+	for (size_t i = 0; i < push_urls->nr; i++) {
+		if (!strcmp(push_urls->v[i], url))
+			return true;
+	}
+	return false;
 }
 
 void ref_push_report_free(struct ref_push_report *report)
@@ -1821,17 +1839,25 @@ const char *repo_default_remote(struct repository *repo)
 
 const char *repo_remote_from_url(struct repository *repo, const char *url)
 {
+	char *rewritten_url;
+	const char *remote_name = NULL;
+
 	read_config(repo, 0);
+	if ((rewritten_url = alias_url(url, &repo->remote_state->rewrites)))
+		url = rewritten_url;
 
 	for (int i = 0; i < repo->remote_state->remotes_nr; i++) {
 		struct remote *remote = repo->remote_state->remotes[i];
 		if (!remote)
 			continue;
 
-		if (remote_has_url(remote, url))
-			return remote->name;
+		if (remote_has_url(remote, url)) {
+			remote_name = remote->name;
+			break;
+		}
 	}
-	return NULL;
+	free(rewritten_url);
+	return remote_name;
 }
 
 int branch_has_merge_config(struct branch *branch)
@@ -1887,12 +1913,45 @@ const char *branch_get_upstream(struct branch *branch, struct strbuf *err)
 	return branch->merge[0]->dst;
 }
 
-static char *tracking_for_push_dest(struct remote *remote,
+struct remote *repo_remote_for_push_tracking(struct repository *repo,
+					     struct remote *remote)
+{
+	const struct strvec *push_urls;
+	struct remote *first_match = NULL;
+	struct remote_state *remote_state = repo->remote_state;
+	const char *check_url;
+
+	if (remote->origin != REMOTE_UNCONFIGURED)
+		return remote;
+
+	push_urls = push_url_of_remote(remote);
+	if (push_urls->nr != 1)
+		return remote;
+	check_url = push_urls->v[0];
+
+	for (int i = 0; i < remote_state->remotes_nr; i++) {
+		struct remote *candidate = remote_state->remotes[i];
+
+		if (!candidate || candidate == remote ||
+		    !remote_is_configured(candidate, 0) ||
+		    !remote_has_push_url(candidate, check_url))
+			continue;
+		if (first_match)
+			return remote;
+		first_match = candidate;
+	}
+
+	return first_match ? first_match : remote;
+}
+
+static char *tracking_for_push_dest(struct repository *repo,
+				    struct remote *remote,
 				    const char *refname,
 				    struct strbuf *err)
 {
 	char *ret;
 
+	remote = repo_remote_for_push_tracking(repo, remote);
 	ret = apply_refspecs(&remote->fetch, refname);
 	if (!ret)
 		return error_buf(err,
@@ -1925,21 +1984,21 @@ static char *branch_get_push_1(struct repository *repo,
 					 _("push refspecs for '%s' do not include '%s'"),
 					 remote->name, branch->name);
 
-		ret = tracking_for_push_dest(remote, dst, err);
+		ret = tracking_for_push_dest(repo, remote, dst, err);
 		free(dst);
 		return ret;
 	}
 
 	if (remote->mirror)
-		return tracking_for_push_dest(remote, branch->refname, err);
+		return tracking_for_push_dest(repo, remote, branch->refname, err);
 
-	switch (push_default) {
+	switch (repo_config_values(repo)->push_default) {
 	case PUSH_DEFAULT_NOTHING:
 		return error_buf(err, _("push has no destination (push.default is 'nothing')"));
 
 	case PUSH_DEFAULT_MATCHING:
 	case PUSH_DEFAULT_CURRENT:
-		return tracking_for_push_dest(remote, branch->refname, err);
+		return tracking_for_push_dest(repo, remote, branch->refname, err);
 
 	case PUSH_DEFAULT_UPSTREAM:
 		return xstrdup_or_null(branch_get_upstream(branch, err));
@@ -1953,7 +2012,7 @@ static char *branch_get_push_1(struct repository *repo,
 			up = branch_get_upstream(branch, err);
 			if (!up)
 				return NULL;
-			cur = tracking_for_push_dest(remote, branch->refname, err);
+			cur = tracking_for_push_dest(repo, remote, branch->refname, err);
 			if (!cur)
 				return NULL;
 			if (strcmp(cur, up)) {
@@ -3041,7 +3100,7 @@ int valid_remote_name(const char *name)
 	int result;
 	struct strbuf refspec = STRBUF_INIT;
 	strbuf_addf(&refspec, "refs/heads/test:refs/remotes/%s/test", name);
-	result = valid_fetch_refspec(refspec.buf);
+	result = valid_fetch_refspec(refspec.buf, the_hash_algo);
 	strbuf_release(&refspec);
 	return result;
 }

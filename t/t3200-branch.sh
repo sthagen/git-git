@@ -930,7 +930,7 @@ test_expect_success 'deleting currently checked out branch fails' '
 	git worktree add -b my7 my7 &&
 	test_must_fail git -C my7 branch -d my7 &&
 	test_must_fail git branch -d my7 2>actual &&
-	test_grep "^error: cannot delete branch .my7. used by worktree at " actual &&
+	test_grep "^error: cannot delete branch '"'"'my7'"'"' used by worktree at '"'.*'\$"'" actual &&
 	rm -r my7 &&
 	git worktree prune
 '
@@ -941,7 +941,7 @@ test_expect_success 'deleting in-use branch fails' '
 	git -C my7 bisect start HEAD HEAD~2 &&
 	test_must_fail git -C my7 branch -d my7 &&
 	test_must_fail git branch -d my7 2>actual &&
-	test_grep "^error: cannot delete branch .my7. used by worktree at " actual &&
+	test_grep "^error: cannot delete branch '"'"'my7'"'"' used by worktree at '"'.*' for bisect\$"'" actual &&
 	rm -r my7 &&
 	git worktree prune
 '
@@ -1075,7 +1075,8 @@ test_expect_success '--set-upstream-to fails on locked config' '
 	test_when_finished "rm -f .git/config.lock" &&
 	>.git/config.lock &&
 	git branch locked &&
-	test_must_fail git branch --set-upstream-to locked 2>err &&
+	test_must_fail git -c core.configLockTimeout=0 \
+		branch --set-upstream-to locked 2>err &&
 	test_grep "could not lock config file .git/config" err
 '
 
@@ -1106,7 +1107,8 @@ test_expect_success '--unset-upstream should fail if config is locked' '
 	test_when_finished "rm -f .git/config.lock" &&
 	git branch --set-upstream-to locked &&
 	>.git/config.lock &&
-	test_must_fail git branch --unset-upstream 2>err &&
+	test_must_fail git -c core.configLockTimeout=0 \
+		branch --unset-upstream 2>err &&
 	test_grep "could not lock config file .git/config" err
 '
 

@@ -3,7 +3,8 @@
 test_description='git cat-file'
 
 . ./test-lib.sh
-. "$TEST_DIRECTORY/lib-loose.sh"
+. "$TEST_DIRECTORY"/lib-loose.sh
+. "$TEST_DIRECTORY"/lib-cat-file.sh
 
 test_cmdmode_usage () {
 	test_expect_code 129 "$@" 2>err &&
@@ -98,18 +99,6 @@ do
 		test_incompatible_usage git cat-file $opt commit HEAD
 	'
 done
-
-echo_without_newline () {
-    printf '%s' "$*"
-}
-
-echo_without_newline_nul () {
-	echo_without_newline "$@" | tr '\n' '\0'
-}
-
-strlen () {
-    echo_without_newline "$1" | wc -c | sed -e 's/^ *//'
-}
 
 run_tests () {
     type=$1
@@ -1349,6 +1338,14 @@ test_expect_success 'batch-command flush without --buffer' '
 	echo "flush" >cmd &&
 	test_expect_code 128 git cat-file --batch-command <cmd 2>err &&
 	test_grep "^fatal:.*flush is only for --buffer mode.*" err
+'
+
+test_expect_success 'batch-command contents auto-handles type' '
+	echo "HEAD" |
+		git cat-file --batch="%(objectname)" >expect &&
+	echo "contents HEAD" |
+		git cat-file --batch-command="%(objectname)" >actual &&
+	test_cmp expect actual
 '
 
 perl_script='
