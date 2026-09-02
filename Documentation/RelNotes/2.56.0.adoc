@@ -85,6 +85,60 @@ UI, Workflows & Features
    syscall fails has also been improved to name both the source and
    the destination.
 
+ * 'git add' has been taught a new '--resolved' option to stage
+   conflict-resolved paths, while leaving unrelated local changes
+   unstaged.  It scans the unmerged paths for leftover conflict
+   markers and aborts if any are found.
+
+ * The known limitations of the ref format migration in 'git refs' have
+   been moved to be displayed as a warning admonition directly under the
+   description of the 'migrate' subcommand, improving visibility.  A
+   reference to 'git-maintenance' has also been corrected to use the
+   'linkgit' macro.
+
+ * The 'git bisect' command has been taught a
+   '--reset-when-found[=<where>]' option that tells the command to
+   automatically run 'git bisect reset' to jump back to the original
+   state or to the found culprit.
+
+ * The 'git branch' command has been taught the '--delete-merged' option
+   to remove local branches that are already merged into their tracked
+   remote-tracking branches.
+
+ * The 'remote-object-info' command for 'git cat-file --batch-command'
+   has been extended to support the '%(objecttype)' placeholder.
+
+ * The usage string of 'git fast-import' has been updated to use the
+   parse_options() API for displaying help, and its SYNOPSIS in the
+   documentation has been standardized to match.
+
+ * The error message given by 'git send-email' when a message file is
+   missing a 'Subject:' header has been clarified, and the error string
+   is now terminated with a newline so that Perl avoids appending its
+   internal source location data.
+
+ * The '--shallow-file' option of 'git' command requires a value, but the
+   code did not check the presence of a value and instead segfaulted
+   without one, which has been corrected.
+
+ * 'git repack' has been taught '--drop-filtered' to delete local
+   promisor blobs exceeding a limit (currently 'blob:limit=') in partial
+   clones, reclaiming space.  Guards prevent running during other
+   operations or if referenced by the index.
+
+ * The documentation for 'git format-rev' has been updated to use the
+   [synopsis] block definition on code blocks to properly highlight
+   placeholders, and a quoting inconsistency in the running text has
+   been fixed.
+
+ * The DWIM logic in 'git worktree add' sometimes tried to infer a
+   remote-tracking branch when an explicit '-b' or '-B' option was
+   given to create a new branch, causing the explicit branch name to
+   be ignored, which has been corrected.
+
+ * The command line completion (in contrib/) has been taught to handle
+   the experimental 'git history' command.
+
 
 Performance, Internal Implementation, Development Support etc.
 --------------------------------------------------------------
@@ -302,14 +356,12 @@ Performance, Internal Implementation, Development Support etc.
    positive warning from the 'CHECK_ASSERTION_SIDE_EFFECTS' build with
    GCC 15 in the Bloom filter code has also been silenced to facilitate
    the image upgrade.
-   (merge 1a1579c42d jk/ci-static-analysis-image-bump later to maint).
 
  * The alias tests in 't/t0014-alias.sh' have been updated to dynamically
    query the list of deprecated commands using 'git
    --list-cmds=deprecated' to avoid test failures when running with
    'WITH_BREAKING_CHANGES' in a build directory that contains stale
    executables of formerly deprecated commands.
-   (merge bc57ecb915 jk/t0014-dynamic-deprecated-cmds later to maint).
 
  * The code path that deals with relative paths in the diff-lib has
    been cleaned up.
@@ -333,6 +385,100 @@ Performance, Internal Implementation, Development Support etc.
  * Tests for 'git merge-base --is-ancestor' have been added to cover
    exit codes (0 for success, 1 for non-ancestor, 128 for errors) and
    to ensure it cannot be combined with '--all'.
+
+ * The 'TRACE2_ANCESTRY' prerequisite in the 't0213' test script has been
+   refined to avoid failures under user-mode emulation by verifying that
+   the ancestry collector reports the expected process names rather than
+   the emulator binary name.
+
+ * Concurrent downloads of packfiles via packfile URIs and dumb HTTP are
+   safer by avoiding concurrent appends to the staging file.  Opening in
+   read-write mode with separate file offsets prevents corruption and
+   preserves resumability.  'fetch-pack' now tolerates pre-existing
+   '.keep' files.
+
+ * The 'ssh-agent' tests in 't7528' have been fixed to work when the
+   user's login shell is csh-like, by explicitly passing '-s' to
+   'ssh-agent' to force Bourne shell syntax.
+
+ * A compatibility wrapper for writev(3p) has been reintroduced,
+   including fixes for CMake build and 'MAX_IO_SIZE' limits on NonStop.
+   Calls to write(3p) in send_sideband() and cat_blob() have been
+   refactored to use writev(3p) wrappers to reduce syscall overhead.
+
+ * The creation of the on-disk data structures for the object database
+   has been made pluggable, allowing future backends to customize their
+   setup.  As part of this, the initialization of the object database
+   has been deferred, and the loading of the loose-object map has been
+   detangled from repository initialization.
+
+ * The 'struct odb_read_stream' and 'struct odb_write_stream'
+   structures have been consolidated into a single unified 'struct
+   odb_stream' structure, simplifying object database streaming APIs
+   and enabling streaming of arbitrary object types.
+
+ * The sequencer has been updated to release the object database before
+   spawning 'git commit'.  This prevents open file handles from
+   blocking auto-maintenance tasks, such as repacking, on systems like
+   Windows where open files cannot be easily unlinked.
+
+ * The merge-base computation has been optimized by stopping the walk
+   early when one side's exclusive commits in the queue are exhausted,
+   yielding significant speedups for queries with one-sided histories.
+
+ * A handful of code paths have been corrected to check return values
+   from functions like curl_easy_duphandle(), deflateInit(), lseek(),
+   dup(), and strbuf_getline_lf(), resolving several Coverity warnings
+   about unchecked returns.
+
+ * The setting of a now-unused member '.pretty_given' in the sequencer
+   machinery has been removed.
+
+ * The performance of adding numerous new packfiles has been improved
+   by introducing a fast path for known-new packfiles to skip an
+   unnecessary traversal in packfile_list_append(), avoiding a
+   quadratic complexity regression on load.
+
+ * The unused name parameter in 'struct chdir_notify_entry' has been
+   removed from chdir_notify_register(), chdir_notify_unregister(), and
+   related callback signatures across several subsystems, simplifying the
+   API now that trace output no longer uses it.
+
+ * A heap-use-after-free bug in the object name parsing code when
+   reporting failures with a relative path to a sparse directory has
+   been corrected.
+
+ * The object database (odb) API has been refactored to distinguish
+   between missing objects and corrupt ones by returning more
+   descriptive error statuses.  Both the packed and loose backends now
+   faithfully propagate error details using a generic strbuf error
+   mechanism, removing backend-specific leakage from central lookup
+   paths.
+
+ * The object database layer has been simplified by eagerly loading
+   alternate object directories upon initialization, instead of
+   deferring it to the first object lookup.  This eliminates the need
+   for scattered lazy-loading calls throughout the codebase and paves
+   the way for integrating alternates with the pluggable backends.
+
+ * The threshold for geometric repacking to trigger based on loose
+   object count has been adjusted to match that of 'git gc --auto',
+   preventing over-aggressive repacking during concurrent writes.
+
+ * The 'git receive-pack' command has been updated to use a new ODB
+   transaction interface for writing incoming packfiles, making it more
+   backend-agnostic.
+
+ * The mechanism to generate a packfile corresponding to the result of
+   a fetch/push has been made pluggable through a set of object
+   database callback functions, removing hardcoded references to
+   'pack-objects' and enabling alternative ODBs to serve packfiles
+   themselves.
+
+ * The pack-objects command has been updated to record the total bytes
+   written to pack files in trace2 output, allowing performance
+   analysis of different compression settings by comparing the
+   resulting pack sizes.
 
 
 Fixes since v2.55
@@ -559,3 +705,44 @@ Fixes since v2.55
  * Documentation for 'git replay' has been updated to refer to its
    configuration variables.
    (merge 48c0549f5c kh/doc-replay-config later to maint).
+
+ * Documentation for 'git interpret-trailers' has been updated to explain
+   the format of trailer keys (alphanumeric characters and hyphens),
+   replace outdated terminology, define key terms upfront, and document
+   how comment lines in the input are treated.
+   (merge 4515c86fd9 kh/doc-trailers later to maint).
+
+ * The 'pack-objects' and delta-encoding code paths have been updated to
+   use 'size_t' instead of 'unsigned long' for object sizes and offset
+   limits, avoiding potential truncation issues on 64-bit Windows.
+   (merge d50ac11724 js/pack-objects-delta-size-t later to maint).
+
+ * A client requesting the promisor-remote capability without a value
+   caused a null pointer dereference, which has been corrected by
+   rejecting a request without an argument.
+   (merge dd6b35ff71 en/serve-promisor-remote-fix later to maint).
+
+ * Various tests in 't7900-maintenance.sh' have been updated to use a
+   throwaway repository, and auto-detaching of maintenance tasks is now
+   disabled for these tests to fix flaky races with concurrent background
+   maintenance jobs.
+   (merge 2775d8bcd1 ps/t7900-deflake-maintenance later to maint).
+
+ * The help text for the '-l' option of 'git diff' has been updated.
+   (merge 764243bdf4 en/diff-l-opt-help later to maint).
+
+ * 'git -C <dir> diff fi<TAB>' did not complete 'file', which has
+   been corrected.
+   (merge 354d1bf3a0 jc/complete-diff-tracked-paths later to maint).
+
+ * 'git -C <dir> checkout fi<TAB>' did not complete 'file', which has
+   been corrected.
+   (merge 05e2ab1f31 jc/complete-checkout later to maint).
+
+ * The trailer parsing machinery has been updated to avoid mistaking
+   lines that begin with a URL (e.g., 'https://...') as trailer lines.
+   This prevents intended textual URLs from being mangled or mistakenly
+   treated as metadata keys.
+
+ * Other code cleanup, docfix, build fix, etc.
+   (merge 026636128f ss/submittingpatches-typofix later to maint).
