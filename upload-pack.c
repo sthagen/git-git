@@ -530,9 +530,9 @@ static int ok_to_give_up(struct upload_pack_data *data)
 	if (!data->have_obj.nr)
 		return 0;
 
-	return can_all_from_reach_with_flag(&data->want_obj, THEY_HAVE,
-					    COMMON_KNOWN, data->oldest_have,
-					    min_generation);
+	return can_all_from_reach_with_flag(the_repository, &data->want_obj,
+					    THEY_HAVE, COMMON_KNOWN,
+					    data->oldest_have, min_generation);
 }
 
 static int get_common_commits(struct upload_pack_data *data,
@@ -1777,8 +1777,8 @@ int upload_pack_v2(struct repository *r, struct packet_reader *request)
 				state = UPLOAD_DONE;
 			break;
 		case UPLOAD_SEND_PACK:
-			send_wanted_ref_info(&data);
 			send_shallow_info(&data);
+			send_wanted_ref_info(&data);
 
 			if (data.uri_protocols.nr) {
 				create_pack_file(&data, &data.uri_protocols);

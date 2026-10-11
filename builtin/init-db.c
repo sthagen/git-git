@@ -57,7 +57,7 @@ static int shared_callback(const struct option *opt, const char *arg, int unset)
 static const char *const init_db_usage[] = {
 	N_("git init [-q | --quiet] [--bare] [--template=<template-directory>]\n"
 	   "         [--separate-git-dir <git-dir>] [--object-format=<format>]\n"
-	   "         [--ref-format=<format>]\n"
+	   "         [--ref-storage-format=<format>]\n"
 	   "         [-b <branch-name> | --initial-branch=<branch-name>]\n"
 	   "         [--shared[=<permissions>]] [<directory>]"),
 	NULL
@@ -80,13 +80,12 @@ int cmd_init_db(int argc,
 	char *work_tree = NULL;
 	const char *template_dir = NULL;
 	char *template_dir_to_free = NULL;
-	unsigned int flags = 0;
+	int quiet = 0;
 	int bare = startup_info->force_bare_repository ? 1 : -1;
 	const char *object_format = NULL;
-	const char *ref_format = NULL;
+	const char *ref_storage_format_uri = NULL;
 	const char *initial_branch = NULL;
 	int hash_algo = GIT_HASH_UNKNOWN;
-	enum ref_storage_format ref_storage_format = REF_STORAGE_FORMAT_UNKNOWN;
 	int init_shared_repository = -1;
 	const struct option init_db_options[] = {
 		OPT_STRING(0, "template", &template_dir, N_("template-directory"),
@@ -102,18 +101,19 @@ int cmd_init_db(int argc,
 			.flags = PARSE_OPT_OPTARG | PARSE_OPT_NONEG,
 			.callback = shared_callback
 		},
-		OPT_BIT('q', "quiet", &flags, N_("be quiet"), INIT_DB_QUIET),
+		OPT_BOOL('q', "quiet", &quiet, N_("be quiet")),
 		OPT_STRING(0, "separate-git-dir", &real_git_dir, N_("gitdir"),
 			   N_("separate git dir from working tree")),
 		OPT_STRING('b', "initial-branch", &initial_branch, N_("name"),
 			   N_("override the name of the initial branch")),
 		OPT_STRING(0, "object-format", &object_format, N_("hash"),
 			   N_("specify the hash algorithm to use")),
-		OPT_STRING(0, "ref-format", &ref_format, N_("format"),
-			   N_("specify the reference format to use")),
+		OPT_STRING(0, "ref-storage-format", &ref_storage_format_uri, N_("format"),
+			   N_("specify the reference storage format to use")),
+		OPT_ALIAS_F(0, "ref-format", "ref-storage-format", PARSE_OPT_HIDDEN),
 		OPT_END()
 	};
-	int ret;
+	int reinit;
 
 	argc = parse_options(argc, argv, prefix, init_db_options, init_db_usage, 0);
 
@@ -171,12 +171,6 @@ int cmd_init_db(int argc,
 		hash_algo = hash_algo_by_name(object_format);
 		if (hash_algo == GIT_HASH_UNKNOWN)
 			die(_("unknown hash algorithm '%s'"), object_format);
-	}
-
-	if (ref_format) {
-		ref_storage_format = ref_storage_format_by_name(ref_format);
-		if (ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN)
-			die(_("unknown ref storage format '%s'"), ref_format);
 	}
 
 	if (init_shared_repository != -1)
@@ -247,14 +241,30 @@ int cmd_init_db(int argc,
 		die(_("--separate-git-dir incompatible with bare repository"));
 	}
 
-	flags |= INIT_DB_EXIST_OK;
-	ret = init_db(the_repository, git_dir, real_git_dir, work_tree,
-		      template_dir, hash_algo, ref_storage_format, initial_branch,
-		      init_shared_repository, flags);
+	create_repository(the_repository, git_dir, real_git_dir, work_tree,
+			  template_dir, hash_algo, ref_storage_format_uri,
+			  init_shared_repository, &reinit);
+	create_reference_database(the_repository, initial_branch, quiet);
+	create_object_database(the_repository, NULL);
+
+	if (!quiet) {
+		int len = strlen(git_dir);
+
+		if (reinit)
+			printf(repo_settings_get_shared_repository(the_repository)
+			       ? _("Reinitialized existing shared Git repository in %s%s\n")
+			       : _("Reinitialized existing Git repository in %s%s\n"),
+			       git_dir, len && git_dir[len-1] != '/' ? "/" : "");
+		else
+			printf(repo_settings_get_shared_repository(the_repository)
+			       ? _("Initialized empty shared Git repository in %s%s\n")
+			       : _("Initialized empty Git repository in %s%s\n"),
+			       git_dir, len && git_dir[len-1] != '/' ? "/" : "");
+	}
 
 	free(template_dir_to_free);
 	free(real_git_dir_to_free);
 	free(work_tree);
 	free(git_dir);
-	return ret;
+	return 0;
 }

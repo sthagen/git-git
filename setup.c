@@ -632,21 +632,6 @@ static enum extension_result handle_extension_v0(const char *var,
 		return EXTENSION_UNKNOWN;
 }
 
-static void parse_reference_uri(const char *value, char **format,
-				char **payload)
-{
-	const char *schema_end;
-
-	schema_end = strstr(value, "://");
-	if (!schema_end) {
-		*format = xstrdup(value);
-		*payload = NULL;
-	} else {
-		*format = xstrndup(value, schema_end - value);
-		*payload = xstrdup_or_null(schema_end + 3);
-	}
-}
-
 /*
  * Record any new extensions in this function.
  */
@@ -689,16 +674,13 @@ static enum extension_result handle_extension(const char *var,
 		return EXTENSION_OK;
 	} else if (!strcmp(ext, "refstorage")) {
 		unsigned int format;
-		char *format_str;
 
 		if (!value)
 			return config_error_nonbool(var);
 
-		parse_reference_uri(value, &format_str,
-				    &data->ref_storage_payload);
-
-		format = ref_storage_format_by_name(format_str);
-		free(format_str);
+		FREE_AND_NULL(data->ref_storage_payload);
+		format = ref_storage_format_by_uri(value,
+						   &data->ref_storage_payload);
 
 		if (format == REF_STORAGE_FORMAT_UNKNOWN)
 			return error(_("invalid value for '%s': '%s'"),
@@ -2084,18 +2066,16 @@ const char *setup_git_directory_gently(struct repository *repo, int *nongit_ok)
 			 * The env variable should override the repository config
 			 * for 'extensions.refStorage'.
 			 */
-			ref_backend_uri = getenv(GIT_REFERENCE_BACKEND_ENVIRONMENT);
+			ref_backend_uri = getenv(GIT_REF_STORAGE_FORMAT_ENVIRONMENT);
+			if (!ref_backend_uri)
+				ref_backend_uri = getenv(GIT_REFERENCE_BACKEND_ENVIRONMENT);
 			if (ref_backend_uri) {
-				char *format;
-
-				free(discovery.format.ref_storage_payload);
-
-				parse_reference_uri(ref_backend_uri, &format, &discovery.format.ref_storage_payload);
-				discovery.format.ref_storage_format = ref_storage_format_by_name(format);
+				FREE_AND_NULL(discovery.format.ref_storage_payload);
+				discovery.format.ref_storage_format =
+					ref_storage_format_by_uri(ref_backend_uri,
+								  &discovery.format.ref_storage_payload);
 				if (discovery.format.ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN)
-					die(_("unknown ref storage format: '%s'"), format);
-
-				free(format);
+					die(_("unknown ref storage format: '%s'"), ref_backend_uri);
 			}
 
 			if (apply_repository_format(repo, &discovery.format,
@@ -2663,8 +2643,13 @@ static int create_default_files(struct repository *repo,
 	return reinit;
 }
 
-static void create_object_database(struct repository *repo)
+void create_object_database(struct repository *repo,
+			    const struct strvec *alternates)
 {
+	struct odb_create_on_disk_options opts = {
+		.alternates = alternates,
+	};
+
 	/*
 	 * Create the "objects" directory in the common directory. This is done
 	 * so that the repository can be discovered regardless of the backend
@@ -2684,7 +2669,7 @@ static void create_object_database(struct repository *repo)
 
 	repo->objects = odb_new(repo, ODB_NEW_HONOR_ENV);
 
-	if (odb_source_create_on_disk(repo->objects->sources) < 0)
+	if (odb_source_create_on_disk(repo->objects->sources, &opts) < 0)
 		die(_("failed creating object database"));
 }
 
@@ -2713,7 +2698,7 @@ static void separate_git_dir(struct repository *repo,
 
 struct default_format_config {
 	int hash;
-	enum ref_storage_format ref_format;
+	enum ref_storage_format ref_storage_format;
 };
 
 static int read_default_format_config(const char *key, const char *value,
@@ -2734,24 +2719,25 @@ static int read_default_format_config(const char *key, const char *value,
 		goto out;
 	}
 
-	if (!strcmp(key, "init.defaultrefformat")) {
+	if (!strcmp(key, "init.defaultrefstorageformat") ||
+	    !strcmp(key, "init.defaultrefformat")) {
 		ret = git_config_string(&str, key, value);
 		if (ret)
 			goto out;
-		cfg->ref_format = ref_storage_format_by_name(str);
-		if (cfg->ref_format == REF_STORAGE_FORMAT_UNKNOWN)
+		cfg->ref_storage_format = ref_storage_format_by_name(str);
+		if (cfg->ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN)
 			warning(_("unknown ref storage format '%s'"), str);
 		goto out;
 	}
 
 	/*
 	 * Enable the reftable format when "features.experimental" is enabled.
-	 * "init.defaultRefFormat" takes precedence over this setting.
+	 * "init.defaultRefStorageFormat" takes precedence over this setting.
 	 */
 	if (!strcmp(key, "feature.experimental") &&
-	    cfg->ref_format == REF_STORAGE_FORMAT_UNKNOWN &&
+	    cfg->ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN &&
 	    git_config_bool(key, value)) {
-		cfg->ref_format = REF_STORAGE_FORMAT_REFTABLE;
+		cfg->ref_storage_format = REF_STORAGE_FORMAT_REFTABLE;
 		ret = 0;
 		goto out;
 	}
@@ -2763,18 +2749,20 @@ out:
 }
 
 static void repository_format_configure(struct repository_format *repo_fmt,
-					int hash, enum ref_storage_format ref_format)
+					int hash,
+					const char *ref_storage_format_uri)
 {
 	struct default_format_config cfg = {
 		.hash = GIT_HASH_UNKNOWN,
-		.ref_format = REF_STORAGE_FORMAT_UNKNOWN,
+		.ref_storage_format = REF_STORAGE_FORMAT_UNKNOWN,
 	};
 	struct config_options opts = {
 		.respect_includes = 1,
 		.ignore_repo = 1,
 		.ignore_worktree = 1,
 	};
-	const char *ref_backend_uri;
+	enum ref_storage_format ref_storage_format;
+	char *ref_storage_payload = NULL;
 	const char *env;
 
 	config_with_options(read_default_format_config, &cfg, NULL, NULL, &opts);
@@ -2800,55 +2788,97 @@ static void repository_format_configure(struct repository_format *repo_fmt,
 		repo_fmt->hash_algo = cfg.hash;
 	}
 
-	env = getenv("GIT_DEFAULT_REF_FORMAT");
-	if (repo_fmt->version >= 0 &&
-	    ref_format != REF_STORAGE_FORMAT_UNKNOWN &&
-	    ref_format != repo_fmt->ref_storage_format) {
-		die(_("attempt to reinitialize repository with different reference storage format"));
-	} else if (ref_format != REF_STORAGE_FORMAT_UNKNOWN) {
-		repo_fmt->ref_storage_format = ref_format;
-	} else if (env) {
-		ref_format = ref_storage_format_by_name(env);
-		if (ref_format == REF_STORAGE_FORMAT_UNKNOWN)
-			die(_("unknown ref storage format '%s'"), env);
-		if (repo_fmt->version < 0 ||
-		    repo_fmt->ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN)
-			repo_fmt->ref_storage_format = ref_format;
-	} else if (cfg.ref_format != REF_STORAGE_FORMAT_UNKNOWN) {
-		repo_fmt->ref_storage_format = cfg.ref_format;
+	/*
+	 * We have the following order of preference when configuring the ref
+	 * storage format:
+	 *
+	 *   1. Explicit override via the command line, like in `git init
+	 *      --ref-storage-format=`.
+	 *
+	 *   2. Explicit override via the environment with
+	 *      "GIT_REF_STORAGE_FORMAT".
+	 *
+	 *   3. Its deprecated equivalent "GIT_REFERENCE_BACKEND".
+	 *
+	 *   4. Existing repository format. All the subsequent sources only
+	 *      kick in when there is no repository yet.
+	 *
+	 *   4. The default ref storage format for new repositories as
+	 *      configured via "GIT_DEFAULT_REF_STORAGE_FORMAT".
+	 *
+	 *   5. Its deprecated equivalent "GIT_DEFAULT_REF_FORMAT".
+	 *
+	 *   6. The default ref storage format for new repositories as
+	 *      configured via "init.defaultRefStorageFormat" or its deprecated
+	 *      equivalent "init.defaultRefFormat".
+	 *
+	 *   7. Otherwise, we fall back to the default ref storage format
+	 *      compiled into Git.
+	 */
+	if (ref_storage_format_uri) {
+		ref_storage_format = ref_storage_format_by_uri(ref_storage_format_uri,
+							       &ref_storage_payload);
+		if (ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN)
+			die(_("unknown ref storage format specified via command line: '%s'"),
+			    ref_storage_format_uri);
+	} else if ((env = getenv(GIT_REF_STORAGE_FORMAT_ENVIRONMENT))) {
+		ref_storage_format = ref_storage_format_by_uri(env, &ref_storage_payload);
+		if (ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN)
+			die(_("unknown ref storage format specified via %s: '%s'"),
+			    GIT_REF_STORAGE_FORMAT_ENVIRONMENT, env);
+	} else if ((env = getenv(GIT_REFERENCE_BACKEND_ENVIRONMENT))) {
+		ref_storage_format = ref_storage_format_by_uri(env, &ref_storage_payload);
+		if (ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN)
+			die(_("unknown ref storage format specified via %s: '%s'"),
+			    GIT_REFERENCE_BACKEND_ENVIRONMENT, env);
+	} else if (repo_fmt->version >= 0) {
+		ref_storage_format = repo_fmt->ref_storage_format;
+		ref_storage_payload = xstrdup_or_null(repo_fmt->ref_storage_payload);
+	} else if ((env = getenv("GIT_DEFAULT_REF_STORAGE_FORMAT"))) {
+		ref_storage_format = ref_storage_format_by_name(env);
+		if (ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN)
+			die(_("unknown ref storage format specified via %s: '%s'"),
+			    "GIT_DEFAULT_REF_STORAGE_FORMAT", env);
+	} else if ((env = getenv("GIT_DEFAULT_REF_FORMAT"))) {
+		ref_storage_format = ref_storage_format_by_name(env);
+		if (ref_storage_format == REF_STORAGE_FORMAT_UNKNOWN)
+			die(_("unknown ref storage format specified via %s: '%s'"),
+			    "GIT_DEFAULT_REF_FORMAT", env);
+	} else if (cfg.ref_storage_format != REF_STORAGE_FORMAT_UNKNOWN) {
+		ref_storage_format = cfg.ref_storage_format;
 	} else {
-		repo_fmt->ref_storage_format = REF_STORAGE_FORMAT_DEFAULT;
+		ref_storage_format = REF_STORAGE_FORMAT_DEFAULT;
 	}
 
-
-	ref_backend_uri = getenv(GIT_REFERENCE_BACKEND_ENVIRONMENT);
-	if (ref_backend_uri) {
-		char *backend, *payload;
-		enum ref_storage_format format;
-
-		parse_reference_uri(ref_backend_uri, &backend, &payload);
-		format = ref_storage_format_by_name(backend);
-		if (format == REF_STORAGE_FORMAT_UNKNOWN)
-			die(_("unknown ref storage format: '%s'"), backend);
-
-		repo_fmt->ref_storage_format = format;
-		repo_fmt->ref_storage_payload = payload;
-
-		free(backend);
+	/*
+	 * If we have a preexisting repository we need to verify that its
+	 * current ref storage format does not change.
+	 */
+	if (repo_fmt->version >= 0) {
+		if (ref_storage_format != repo_fmt->ref_storage_format)
+			die(_("attempt to reinitialize repository with different reference storage format"));
+		if ((ref_storage_payload || repo_fmt->ref_storage_payload) &&
+		    strcmp(ref_storage_payload ? ref_storage_payload : "",
+			   repo_fmt->ref_storage_payload ? repo_fmt->ref_storage_payload : ""))
+			die(_("attempt to reinitialize repository with different reference storage payload"));
 	}
+
+	free(repo_fmt->ref_storage_payload);
+	repo_fmt->ref_storage_format = ref_storage_format;
+	repo_fmt->ref_storage_payload = ref_storage_payload;
 }
 
-int init_db(struct repository *repo,
-	    const char *git_dir,
-	    const char *real_git_dir,
-	    const char *worktree,
-	    const char *template_dir, int hash,
-	    enum ref_storage_format ref_storage_format,
-	    const char *initial_branch,
-	    int init_shared_repository, unsigned int flags)
+void create_repository(struct repository *repo,
+		       const char *git_dir,
+		       const char *real_git_dir,
+		       const char *worktree,
+		       const char *template_dir,
+		       int hash,
+		       const char *ref_storage_format_uri,
+		       int init_shared_repository,
+		       int *reinit_ok)
 {
-	int reinit;
-	int exist_ok = flags & INIT_DB_EXIST_OK;
+	int reinit_ignored;
 	char *original_git_dir = real_pathdup(git_dir, 1);
 	struct repository_format repo_fmt = REPOSITORY_FORMAT_INIT;
 	struct strbuf err = STRBUF_INIT;
@@ -2856,10 +2886,10 @@ int init_db(struct repository *repo,
 	if (real_git_dir) {
 		struct stat st;
 
-		if (!exist_ok && !stat(git_dir, &st))
+		if (!reinit_ok && !stat(git_dir, &st))
 			die(_("%s already exists"), git_dir);
 
-		if (!exist_ok && !stat(real_git_dir, &st))
+		if (!reinit_ok && !stat(real_git_dir, &st))
 			die(_("%s already exists"), real_git_dir);
 
 		apply_and_export_relative_gitdir(repo, real_git_dir, 1);
@@ -2880,7 +2910,7 @@ int init_db(struct repository *repo,
 	 * is an attempt to reinitialize new repository with an old tool.
 	 */
 	read_and_verify_repository_format(&repo_fmt, repo_get_git_dir(repo), NULL);
-	repository_format_configure(&repo_fmt, hash, ref_storage_format);
+	repository_format_configure(&repo_fmt, hash, ref_storage_format_uri);
 	if (apply_repository_format(repo, &repo_fmt, APPLY_REPOSITORY_FORMAT_HONOR_ENV, &err) < 0)
 		die("%s", err.buf);
 
@@ -2893,8 +2923,10 @@ int init_db(struct repository *repo,
 
 	safe_create_dir(repo, git_dir, 0);
 
-	reinit = create_default_files(repo, template_dir, original_git_dir,
-				      &repo_fmt, init_shared_repository);
+	if (!reinit_ok)
+		reinit_ok = &reinit_ignored;
+	*reinit_ok = create_default_files(repo, template_dir, original_git_dir,
+					  &repo_fmt, init_shared_repository);
 
 	if (repo_settings_get_shared_repository(repo)) {
 		char buf[10];
@@ -2917,29 +2949,7 @@ int init_db(struct repository *repo,
 		repo_config_set(repo, "receive.denyNonFastforwards", "true");
 	}
 
-	if (!(flags & INIT_DB_SKIP_REFDB))
-		create_reference_database(repo, initial_branch, flags & INIT_DB_QUIET);
-	create_object_database(repo);
-
-	startup_info->have_repository = 1;
-
-	if (!(flags & INIT_DB_QUIET)) {
-		int len = strlen(git_dir);
-
-		if (reinit)
-			printf(repo_settings_get_shared_repository(repo)
-			       ? _("Reinitialized existing shared Git repository in %s%s\n")
-			       : _("Reinitialized existing Git repository in %s%s\n"),
-			       git_dir, len && git_dir[len-1] != '/' ? "/" : "");
-		else
-			printf(repo_settings_get_shared_repository(repo)
-			       ? _("Initialized empty shared Git repository in %s%s\n")
-			       : _("Initialized empty Git repository in %s%s\n"),
-			       git_dir, len && git_dir[len-1] != '/' ? "/" : "");
-	}
-
 	clear_repository_format(&repo_fmt);
 	strbuf_release(&err);
 	free(original_git_dir);
-	return 0;
 }
